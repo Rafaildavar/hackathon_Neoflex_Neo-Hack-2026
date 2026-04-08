@@ -1,0 +1,115 @@
+services:
+  db:
+    image: timescale/timescaledb:2.17.2-pg16
+    container_name: neo_hack_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-moex_dwh}
+      POSTGRES_USER: ${POSTGRES_USER:-moex}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-moex_pass}
+      TZ: ${TZ:-UTC}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./sql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-moex} -d ${POSTGRES_DB:-moex_dwh}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - data_platform
+
+  airflow-init:
+    image: apache/airflow:2.10.4-python3.11
+    container_name: neo_hack_airflow_init
+    depends_on:
+      db:
+        condition: service_healthy
+    environment: &airflow-common-env
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "false"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-moex}:${POSTGRES_PASSWORD:-moex_pass}@db:5432/${POSTGRES_DB:-moex_dwh}
+      AIRFLOW_UID: ${AIRFLOW_UID:-50000}
+      TZ: ${TZ:-UTC}
+      _PIP_ADDITIONAL_REQUIREMENTS: ${AIRFLOW_PIP_ADDITIONAL_REQUIREMENTS:-apache-airflow-providers-postgres==5.13.0 requests==2.32.3 pandas==2.2.3}
+    user: "${AIRFLOW_UID:-50000}:0"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+    command: >
+      bash -c "
+      airflow db migrate;
+      airflow users create
+      --username ${AIRFLOW_ADMIN_USERNAME:-admin}
+      --firstname Airflow
+      --lastname Admin
+      --role Admin
+      --email ${AIRFLOW_ADMIN_EMAIL:-admin@example.com}
+      --password ${AIRFLOW_ADMIN_PASSWORD:-admin};
+      true
+      "
+    networks:
+      - data_platform
+
+  airflow-webserver:
+    image: apache/airflow:2.10.4-python3.11
+    container_name: neo_hack_airflow_webserver
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    environment: *airflow-common-env
+    user: "${AIRFLOW_UID:-50000}:0"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+    ports:
+      - "${AIRFLOW_PORT:-8080}:8080"
+    command: webserver
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail http://localhost:8080/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    networks:
+      - data_platform
+
+  airflow-scheduler:
+    image: apache/airflow:2.10.4-python3.11
+    container_name: neo_hack_airflow_scheduler
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    environment: *airflow-common-env
+    user: "${AIRFLOW_UID:-50000}:0"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+    command: scheduler
+    healthcheck:
+      test: ["CMD-SHELL", "airflow jobs check --job-type SchedulerJob --hostname \"$${HOSTNAME}\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - data_platform
+
+volumes:
+  db_data:
+
+networks:
+  data_platform:
+    driver: bridge
+

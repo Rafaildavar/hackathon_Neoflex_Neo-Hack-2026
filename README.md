@@ -1,141 +1,123 @@
-# Neo Invest — загрузка данных MOEX
+# Neo-Hack 2026: MOEX Data Platform (Stage 1)
 
-Проект загружает исторические и оперативные данные с Московской биржи (ISS MOEX) в PostgreSQL с расширением **TimescaleDB**. Оркестрация — **Apache Airflow**, код ingestion — **Python** (SQLAlchemy, pandas).
+This repository contains the first stage of the project:
+- TimescaleDB (PostgreSQL) container for DWH
+- Apache Airflow containers (init, webserver, scheduler)
+- Bootstrap SQL for `stg -> core -> mart` layers
+- Base Python 3.11 dependencies for ETL scripts
 
-## Что внутри репозитория
+## Tech stack for this stage
+- Docker + Docker Compose
+- PostgreSQL 16 + TimescaleDB 2.x
+- Apache Airflow 2.10 (Python 3.11 image)
 
-| Путь | Назначение |
-|------|------------|
-| `docker/docker-compose.yml` | Postgres (TimescaleDB), Airflow (webserver + scheduler + init), опционально контейнер `app` для разового запуска скрипта |
-| `docker/airflow/Dockerfile` | Образ Airflow с зависимостями из `requirements.txt` |
-| `dags/` | DAG’и Airflow (ручная загрузка истории в `stg`) |
-| `src/` | Клиент MOEX, загрузка в БД, репозиторий, настройки |
-| `sql/staging`, `sql/core`, `sql/mart` | DDL схем `stg`, `core`, `mart` |
-| `sql/migrations/` | Миграции данных/схемы (переименование тикера, смена формата `daily_candles`) |
+## Repository structure
 
-Слои данных:
-
-- **`stg`** — сырой JSON ответов API (`stg.raw_moex_data`).
-- **`core`** — нормализованные дневные свечи и внутридневные котировки (`core.daily_candles`, `core.intraday_quotes`).
-
-## Требования
-
-- **Docker** и **Docker Compose** (plugin `docker compose`).
-- Для локального запуска Python без Docker: **Python 3.11+** (рекомендуется).
-
-## Быстрый старт (Docker)
-
-### 1. Клонирование и переменные окружения
-
-```bash
-git clone <url-репозитория>
-cd "НЕОФЛЕКС ХАКАТОН"
-cp .env.example .env
+```text
+.
+├─ docker-compose.yml
+├─ .env.example
+├─ requirements.txt
+├─ sql/
+│  └─ init/
+│     ├─ 01_schemas.sql
+│     └─ 02_continuous_aggregates.sql
+└─ airflow/
+   ├─ dags/
+   │  └─ bootstrap_healthcheck_dag.py
+   ├─ logs/
+   └─ plugins/
 ```
 
-Отредактируйте `.env`. Важно:
+## Prerequisites
+- Docker Desktop 4.0+
+- Docker Compose v2+
 
-- **`POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD`** должны совпадать с тем, что ожидает Airflow в `docker/docker-compose.yml` (строка `AIRFLOW__DATABASE__SQL_ALCHEMY_CONN`). В примере используется база `neo_invest` и пользователь `neo`.
-- **`POSTGRES_PORT`** на хосте: в `docker-compose` проброшен порт **`5434:5432`**, чтобы не конфликтовать с другим Postgres на `5432`/`5433`. Подключение с вашего Mac: `localhost:5434`.
+> Works on both macOS and Windows (Docker Desktop).
 
-### 2. Запуск инфраструктуры
+## Quick start
 
-Из каталога `docker`:
-
-```bash
-cd docker
-docker compose up -d postgres
-```
-
-Дождитесь статуса `healthy` у контейнера `neo_postgres`:
-
-```bash
-docker compose ps postgres
-```
-
-Полный стек (Postgres + инициализация Airflow + webserver + scheduler):
+1. Start infrastructure:
 
 ```bash
 docker compose up -d
 ```
 
-Первый запуск может занять несколько минут: `airflow-init` выполняет `airflow db migrate` и создаёт пользователя админки.
+2. Open services:
+- Airflow UI: `http://localhost:8080`
+- PostgreSQL: `localhost:5432`
 
-### 3. Airflow UI
+3. Default credentials (change in `.env`):
+- Airflow: `admin / admin`
+- PostgreSQL: `moex / moex_pass`
 
-- URL: **http://localhost:8080**
-- Логин/пароль: из `.env` — `AIRFLOW_USER` / `AIRFLOW_PASSWORD` (по умолчанию `admin` / `admin`).
+## What is initialized in DB
 
-Включите DAG **`moex_manual_load`** и запустите задачу вручную (DAG без расписания, `schedule=None`): загрузится история за ~30 дней по тикерам из кода DAG в таблицу **`stg.raw_moex_data`**.
+During the first DB start, SQL scripts in `sql/init` are executed automatically:
 
-### 4. Подключение к Postgres
+- `01_schemas.sql`
+  - Creates schemas: `stg`, `core`, `mart`
+  - Creates hypertables:
+    - `stg.raw_moex_data`
+    - `core.minute_candles`
+    - `mart.dashboard_metrics`
+  - Creates service marts:
+    - `mart.daily_metrics`
+    - `mart.anomaly_events`
 
-С хоста (psql, DBeaver, TablePlus):
+- `02_continuous_aggregates.sql`
+  - Creates continuous aggregates:
+    - `core.hourly_candles`
+    - `core.daily_candles`
+    - `core.weekly_candles`
+  - Adds refresh policies for each aggregate
 
-| Параметр | Значение (по умолчанию из примера) |
-|----------|-------------------------------------|
-| Host | `localhost` |
-| Port | `5434` |
-| Database | `neo_invest` |
-| User / Password | из `.env` (`POSTGRES_USER` / `POSTGRES_PASSWORD`) |
+This follows the architecture from `db.md`: detailed minute layer + derived intervals via continuous aggregates.
 
-Через CLI:
+## Common commands
+
+Start containers:
 
 ```bash
-docker exec -it neo_postgres psql -U neo -d neo_invest
+docker compose up -d
 ```
 
-Полезные команды в `psql`: `\dn` (схемы), `\dt stg.*`, `\dt core.*`, `\q` (выход).
-
-**Примечание.** Порт `5434` — это не веб-страница; в браузере он не откроется. Для веб-интерфейса к БД используйте pgAdmin/Adminer или клиент с GUI.
-
-### 5. Остановка
-
-```bash
-cd docker
-docker compose stop
-```
-
-Данные Postgres сохраняются в volume `pg_data`. Полное удаление контейнеров без удаления volume:
+Stop containers:
 
 ```bash
 docker compose down
 ```
 
-## Локальный Python (без Docker для кода)
-
-Удобно для отладки `src/` и запуска скриптов с хоста.
+Stop and remove DB volume (full reset):
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+docker compose down -v
 ```
 
-Убедитесь, что Postgres из Docker запущен и в `.env` указаны **`POSTGRES_HOST=localhost`** и **`POSTGRES_PORT=5434`**.
-
-Запуск из **корня репозитория** (важен `PYTHONPATH`):
+View logs:
 
 ```bash
-export PYTHONPATH=.
-python -m src.ingestion.fetch_history
-python -m src.ingestion.load_history_manual
+docker compose logs -f db
+docker compose logs -f airflow-webserver
+docker compose logs -f airflow-scheduler
 ```
 
-При первом использовании загрузчика с SQLAlchemy вызывается `ensure_db_objects()`: создаются схемы и применяются SQL-файлы из `sql/staging`, `sql/core` и `sql/migrations` (если файлы существуют).
+## Python 3.11 local dependencies
 
-## Структура БД (кратко)
+Install dependencies for future ETL scripts:
 
-- Инициализация контейнера: `docker/postgres/init.sql` — расширение TimescaleDB и схемы `stg`, `core`, `mart`.
-- Таблица сырья: `stg.raw_moex_data` (JSONB).
-- Таблица дневных свечей: `core.daily_candles` (ключ `(name, date)`; поле объёма названо **`valume`** — опечатка сохранена в схеме).
+```bash
+python3.11 -m pip install -r requirements.txt
+```
 
-## Частые проблемы
+On Windows (if `python` points to 3.11):
 
-- **`bind: address already in use` для порта** — на машине уже занят порт. В `docker/docker-compose.yml` смените левую часть в `ports` у `postgres` (например `5435:5432`) и обновите `POSTGRES_PORT` в `.env`.
-- **Airflow не видит DAG** — проверьте монтирование `../dags` в `docker-compose` и логи `neo_airflow_scheduler`.
-- **Несовпадение учётных данных** — `POSTGRES_*` в `.env`, строка подключения Airflow в `docker-compose.yml` и параметры в приложении должны описывать одну и ту же БД и пользователя.
+```powershell
+python -m pip install -r requirements.txt
+```
 
-## Лицензия
+## Notes
+- MOEX ISS free data is delayed (~15 minutes).
+- Keep API polling rates inside the documented limits.
+- Stage 1 includes infra bootstrap only (no ingestion DAG yet).
 
-Уточните у команды хакатона / владельца репозитория.
