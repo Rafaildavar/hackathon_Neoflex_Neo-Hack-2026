@@ -1,5 +1,9 @@
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 def _split_csv(raw: str) -> list[str]:
@@ -17,8 +21,13 @@ class Settings:
     moex_base_url: str = os.getenv("MOEX_BASE_URL", "https://iss.moex.com/iss")
     moex_timeout_sec: int = int(os.getenv("MOEX_TIMEOUT_SEC", "20"))
     moex_poll_seconds: int = int(os.getenv("MOEX_POLL_SECONDS", "10"))
-    moex_tickers: list[str] = _split_csv(
-        os.getenv("MOEX_TICKERS", "SBER,GAZP,LKOH,YNDX,VTBR,ROSN,NVTK")
+    moex_tickers: list[str] = field(
+        default_factory=lambda: _split_csv(
+            os.getenv(
+                "MOEX_TICKERS",
+                "SBER,GAZP,LKOH,YDEX,VTBR,ROSN,NVTK,TATN,GMKN,NLMK",
+            )
+        )
     )
 
     @property

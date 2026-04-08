@@ -21,25 +21,15 @@ def _to_daily_rows(payload: dict[str, Any], ticker: str) -> list[dict[str, Any]]
         high_price = raw.get("HIGH")
         low_price = raw.get("LOW")
 
-        price_change_pct = None
-        if open_price not in (None, 0) and close_price is not None:
-            price_change_pct = ((close_price - open_price) / open_price) * 100
-
-        range_pct = None
-        if low_price not in (None, 0) and high_price is not None:
-            range_pct = ((high_price - low_price) / low_price) * 100
-
         rows.append(
             {
-                "trade_date": raw.get("TRADEDATE"),
-                "ticker": ticker,
+                "name": ticker,
+                "date": raw.get("TRADEDATE"),
+                "high": high_price,
                 "open": open_price,
                 "close": close_price,
-                "high": high_price,
                 "low": low_price,
-                "volume": raw.get("VOLUME"),
-                "price_change_pct": price_change_pct,
-                "range_pct": range_pct,
+                "valume": raw.get("VOLUME"),
             }
         )
     return rows

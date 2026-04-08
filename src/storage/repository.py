@@ -2,8 +2,44 @@ import json
 from datetime import datetime
 from typing import Any
 
+import pandas as pd
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+
+from src.storage.db import engine
+
+
+def get_daily_candles(ticket: str) -> pd.DataFrame:
+    """Дневные свечи из core.daily_candles (не staging)."""
+    query = text(
+        """
+        SELECT
+            name,
+            date,
+            high,
+            open,
+            close,
+            low,
+            valume
+        FROM core.daily_candles
+        WHERE name = :ticket
+        ORDER BY date DESC
+        """
+    )
+    return pd.read_sql(query, engine, params={"ticket": ticket.strip()})
+
+
+def get_raw_data(ticket: str) -> pd.DataFrame:
+    """Алиас к get_daily_candles; данные только из core.daily_candles."""
+    return get_daily_candles(ticket)
+
+
+def get_stg_raw_moex(ticket: str) -> pd.DataFrame:
+    """Сырой JSON из stg.raw_moex_data по тикеру (если нужен именно staging)."""
+    query = text(
+        "SELECT * FROM stg.raw_moex_data WHERE ticker = :ticket ORDER BY load_ts DESC"
+    )
+    return pd.read_sql(query, engine, params={"ticket": ticket.strip()})
 
 
 class MoexRepository:
@@ -37,16 +73,14 @@ class MoexRepository:
             text(
                 """
                 INSERT INTO core.daily_candles
-                (trade_date, ticker, open, close, high, low, volume, price_change_pct, range_pct)
-                VALUES (:trade_date, :ticker, :open, :close, :high, :low, :volume, :price_change_pct, :range_pct)
-                ON CONFLICT (trade_date, ticker) DO UPDATE SET
+                (name, date, high, open, close, low, valume)
+                VALUES (:name, :date, :high, :open, :close, :low, :valume)
+                ON CONFLICT (name, date) DO UPDATE SET
+                    high = EXCLUDED.high,
                     open = EXCLUDED.open,
                     close = EXCLUDED.close,
-                    high = EXCLUDED.high,
                     low = EXCLUDED.low,
-                    volume = EXCLUDED.volume,
-                    price_change_pct = EXCLUDED.price_change_pct,
-                    range_pct = EXCLUDED.range_pct
+                    valume = EXCLUDED.valume
                 """
             ),
             row,

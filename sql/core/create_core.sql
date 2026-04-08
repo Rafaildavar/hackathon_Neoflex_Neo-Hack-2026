@@ -1,18 +1,16 @@
 CREATE TABLE IF NOT EXISTS core.daily_candles (
-    trade_date DATE NOT NULL,
-    ticker TEXT NOT NULL,
+    name TEXT NOT NULL,
+    date DATE NOT NULL,
+    high NUMERIC(18,6),
     open NUMERIC(18,6),
     close NUMERIC(18,6),
-    high NUMERIC(18,6),
     low NUMERIC(18,6),
-    volume BIGINT,
-    price_change_pct NUMERIC(10,4),
-    range_pct NUMERIC(10,4),
-    PRIMARY KEY (trade_date, ticker)
+    valume BIGINT,
+    PRIMARY KEY (name, date)
 );
 
 CREATE INDEX IF NOT EXISTS idx_core_daily_ticker_date
-    ON core.daily_candles (ticker, trade_date DESC);
+    ON core.daily_candles (name, date DESC);
 
 CREATE TABLE IF NOT EXISTS core.intraday_quotes (
     quote_ts TIMESTAMPTZ NOT NULL,
