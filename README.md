@@ -1,100 +1,154 @@
-# Neo-Hack 2026: MOEX Data Platform (Stage 1)
+# Neo-Hack 2026: MOEX Data Platform (Этап 1)
 
-This repository contains the first stage of the project:
-- TimescaleDB (PostgreSQL) container for DWH
-- Apache Airflow containers (init, webserver, scheduler)
-- Bootstrap SQL for `stg -> core -> mart` layers
-- Base Python 3.11 dependencies for ETL scripts
+Репозиторий содержит базовую инфраструктуру и ETL-скрипты для загрузки и подготовки данных MOEX:
+- TimescaleDB (PostgreSQL) для DWH
+- Apache Airflow (init, webserver, scheduler)
+- SQL-инициализация слоев `stg -> core -> mart`
+- Скрипты загрузки сырых данных и трансформации в минутные свечи
 
-## Tech stack for this stage
+## Технологический стек
 - Docker + Docker Compose
 - PostgreSQL 16 + TimescaleDB 2.x
-- Apache Airflow 2.10 (Python 3.11 image)
+- Apache Airflow 2.10 (Python 3.11)
+- Python 3.11 + `requests`, `psycopg2`
 
-## Repository structure
+## Структура проекта
 
 ```text
 .
 ├─ docker-compose.yml
-├─ .env.example
 ├─ requirements.txt
 ├─ sql/
 │  └─ init/
 │     ├─ 01_schemas.sql
 │     └─ 02_continuous_aggregates.sql
+├─ scripts/
+│  ├─ load_raw_moex_candles.py
+│  └─ transform_raw_to_candles.py
 └─ airflow/
    ├─ dags/
-   │  └─ bootstrap_healthcheck_dag.py
    ├─ logs/
    └─ plugins/
 ```
 
-## Prerequisites
+## Предварительные требования
 - Docker Desktop 4.0+
 - Docker Compose v2+
+- Python 3.11+
 
-> Works on both macOS and Windows (Docker Desktop).
+## Быстрый старт
 
-## Quick start
-
-1. Start infrastructure:
+1) Поднимите инфраструктуру:
 
 ```bash
 docker compose up -d
 ```
 
-2. Open services:
+2) Сервисы:
 - Airflow UI: `http://localhost:8080`
 - PostgreSQL: `localhost:5432`
 
-3. Default credentials (change in `.env`):
+3) Дефолтные доступы (можно переопределить через `.env`):
 - Airflow: `admin / admin`
 - PostgreSQL: `moex / moex_pass`
 
-## What is initialized in DB
+## Что инициализируется в БД
 
-During the first DB start, SQL scripts in `sql/init` are executed automatically:
+При первом старте контейнера БД выполняются скрипты из `sql/init`:
 
-- `01_schemas.sql`
-  - Creates schemas: `stg`, `core`, `mart`
-  - Creates hypertables:
+- `sql/init/01_schemas.sql`
+  - Схемы: `stg`, `core`, `mart`
+  - Гипертаблицы:
     - `stg.raw_moex_data`
     - `core.minute_candles`
     - `mart.dashboard_metrics`
-  - Creates service marts:
+  - Сервисные таблицы:
     - `mart.daily_metrics`
     - `mart.anomaly_events`
 
-- `02_continuous_aggregates.sql`
-  - Creates continuous aggregates:
+- `sql/init/02_continuous_aggregates.sql`
+  - Continuous aggregates:
     - `core.hourly_candles`
     - `core.daily_candles`
     - `core.weekly_candles`
-  - Adds refresh policies for each aggregate
+  - Политики автообновления агрегатов
 
-This follows the architecture from `db.md`: detailed minute layer + derived intervals via continuous aggregates.
+Важно: init-скрипты запускаются только при первом создании volume БД.
 
-## Common commands
+## Запуск ETL-скриптов
 
-Start containers:
+Ниже команды для двух функций:
+1) загрузка сырых payload в `stg.raw_moex_data`
+2) преобразование payload в `core.minute_candles`
+
+### 1. Загрузка сырых данных (`load_raw_moex_candles.py`)
+
+#### Windows (PowerShell)
+```powershell
+Set-Location "D:\hackathon_Neoflex_Neo-Hack-2026"
+python -u .\scripts\load_raw_moex_candles.py --from-date 2026-03-08 --till-date 2026-04-08
+```
+
+#### macOS (Terminal)
+```bash
+cd /path/to/hackathon_Neoflex_Neo-Hack-2026
+python3 -u ./script/load_raw_moex_candles.py --from-date 2026-03-08 --till-date 2026-04-08
+```
+
+Полезные параметры:
+- `--tickers` - список тикеров через запятую
+- `--from-date` и `--till-date` - диапазон дат (`YYYY-MM-DD`)
+- `--interval` - интервал свечей MOEX (`1`, `10`, `60`, `24`)
+
+### 2. Трансформация в минутные свечи (`transform_raw_to_candles.py`)
+
+#### Все тикеры
+
+Windows (PowerShell):
+```powershell
+Set-Location "D:\hackathon_Neoflex_Neo-Hack-2026"
+python -u .\scripts\transform_raw_to_candles.py
+```
+
+macOS (Terminal):
+```bash
+cd /path/to/hackathon_Neoflex_Neo-Hack-2026
+python3 -u ./script/transform_raw_to_candles.py
+```
+
+#### Только один тикер
+
+Windows (PowerShell):
+```powershell
+python -u .\scripts\transform_raw_to_candles.py --ticker SBER
+```
+
+macOS (Terminal):
+```bash
+python3 -u ./script/transform_raw_to_candles.py --ticker SBER
+```
+
+## Полезные команды Docker
+
+Запуск:
 
 ```bash
 docker compose up -d
 ```
 
-Stop containers:
+Остановка:
 
 ```bash
 docker compose down
 ```
 
-Stop and remove DB volume (full reset):
+Полный reset (с удалением volume БД):
 
 ```bash
 docker compose down -v
 ```
 
-View logs:
+Логи контейнеров (stdout/stderr):
 
 ```bash
 docker compose logs -f db
@@ -102,22 +156,19 @@ docker compose logs -f airflow-webserver
 docker compose logs -f airflow-scheduler
 ```
 
-## Python 3.11 local dependencies
+## Установка Python-зависимостей
 
-Install dependencies for future ETL scripts:
-
-```bash
-python3.11 -m pip install -r requirements.txt
-```
-
-On Windows (if `python` points to 3.11):
-
+Windows (PowerShell):
 ```powershell
 python -m pip install -r requirements.txt
 ```
 
-## Notes
-- MOEX ISS free data is delayed (~15 minutes).
-- Keep API polling rates inside the documented limits.
-- Stage 1 includes infra bootstrap only (no ingestion DAG yet).
+macOS (Terminal):
+```bash
+python3 -m pip install -r requirements.txt
+```
 
+## Примечания
+- Данные MOEX ISS в бесплатном доступе имеют задержку около 15 минут.
+- Соблюдайте лимиты API по частоте запросов.
+- На этом этапе реализован инфраструктурный bootstrap и базовые ETL-скрипты.

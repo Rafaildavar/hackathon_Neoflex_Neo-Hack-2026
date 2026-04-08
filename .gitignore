@@ -185,3 +185,6 @@ fabric.properties
 .idea
 airflow/logs/*
 !airflow/logs/.gitkeep
+
+db.md
+task.md
