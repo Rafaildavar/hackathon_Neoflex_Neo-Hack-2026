@@ -212,7 +212,7 @@ python3 -m pip install -r requirements.txt
 - Соблюдайте лимиты API по частоте запросов.
 - На этом этапе реализован инфраструктурный bootstrap и базовые ETL-скрипты.
 
-## Отдельный блок: как пользоваться тем, что я сделал
+## Преобразованния 
 
 Этот блок описывает мой контур работы с данными: от сырого слоя до агрегатов по часам, дням и неделям.
 
@@ -289,4 +289,44 @@ LIMIT 12;
 CALL refresh_continuous_aggregate('core.hourly_candles', NULL, NULL);
 CALL refresh_continuous_aggregate('core.daily_candles', NULL, NULL);
 CALL refresh_continuous_aggregate('core.weekly_candles', NULL, NULL);
+```
+
+## Инструкция для коллеги: полная пересборка за 30 дней (только Python-скрипты)
+
+Ниже сценарий пересборки, который выполняется Python-скриптами:
+- очистка текущих данных контура,
+- загрузка полного minute-исторического диапазона с пагинацией MOEX,
+- трансформация в `core.minute_candles`,
+- обновление агрегатов `hourly/daily/weekly`,
+- проверка количества строк по слоям.
+
+### Что нужно
+- Поднятая инфраструктура Docker (`db`, `airflow-*`) — запускается один раз.
+- Python и зависимости из `requirements.txt` (лучше через `.venv_run`).
+- Доступ к MOEX ISS API.
+
+### Вариант 1: один командный скрипт (рекомендуется)
+
+```bash
+.venv_run/bin/python -u ./script/rebuild_history_pipeline.py \
+  --tickers SBER,GAZP,LKOH,YDEX,VTBR,ROSN,NVTK,TATN,GMKN,NLMK \
+  --from-date 2026-03-10 \
+  --till-date 2026-04-08 \
+  --page-size 500 \
+  --max-pages 1000
+```
+
+Что делает `rebuild_history_pipeline.py`:
+1. `reset_pipeline_data.py` — очищает `stg.raw_moex_data` и `core.minute_candles`;
+2. `load_raw_moex_candles.py` — грузит все страницы MOEX за период;
+3. `transform_raw_to_candles.py --refresh-aggregates` — строит minute и обновляет `hourly/daily/weekly`;
+4. `verify_pipeline_counts.py` — выводит контрольные объёмы таблиц.
+
+### Вариант 2: пошагово, но тоже только Python
+
+```bash
+.venv_run/bin/python -u ./script/reset_pipeline_data.py
+.venv_run/bin/python -u ./script/load_raw_moex_candles.py --tickers SBER,GAZP,LKOH,YDEX,VTBR,ROSN,NVTK,TATN,GMKN,NLMK --from-date 2026-03-10 --till-date 2026-04-08 --page-size 500 --max-pages 1000
+.venv_run/bin/python -u ./script/transform_raw_to_candles.py --from-date 2026-03-10 --till-date 2026-04-08 --refresh-aggregates
+.venv_run/bin/python -u ./script/verify_pipeline_counts.py
 ```

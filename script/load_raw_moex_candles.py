@@ -45,6 +45,7 @@ class DbConfig:
 class LoadStats:
     inserted_rows: int = 0
     requests_done: int = 0
+    candles_fetched: int = 0
 
 
 def parse_args() -> argparse.Namespace:
@@ -118,6 +119,18 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Fetch payloads without inserting into DB",
     )
+    parser.add_argument(
+        "--page-size",
+        type=int,
+        default=int(os.getenv("MOEX_PAGE_SIZE", "500")),
+        help="MOEX page size for pagination",
+    )
+    parser.add_argument(
+        "--max-pages",
+        type=int,
+        default=int(os.getenv("MOEX_MAX_PAGES", "500")),
+        help="Safety limit for pagination pages per ticker",
+    )
     return parser.parse_args()
 
 
@@ -128,8 +141,17 @@ def fetch_with_fallback(
     interval: int,
     timeout_seconds: int,
     moex_base_url: str,
+    start: int,
+    page_size: int,
 ) -> tuple[str, dict[str, Any]]:
-    params = {"from": from_date, "till": till_date, "interval": interval}
+    params = {
+        "from": from_date,
+        "till": till_date,
+        "interval": interval,
+        "start": start,
+    }
+    if page_size > 0:
+        params["limit"] = page_size
     errors: list[str] = []
 
     for endpoint_template in DEFAULT_ENDPOINTS:
@@ -208,39 +230,69 @@ def main() -> int:
 
     try:
         for ticker in tickers:
-            source_endpoint, payload = fetch_with_fallback(
-                ticker=ticker,
-                from_date=args.from_date,
-                till_date=args.till_date,
-                interval=args.interval,
-                timeout_seconds=args.timeout_seconds,
-                moex_base_url=args.moex_base_url,
-            )
-            stats.requests_done += 1
+            page = 0
+            start = 0
+            total_rows_for_ticker = 0
 
-            candles_data = payload.get("candles", {}).get("data", [])
-            print(
-                f"Fetched {len(candles_data)} rows for {ticker} from {source_endpoint} "
-                f"for {args.from_date}..{args.till_date}"
-            )
+            while page < args.max_pages:
+                source_endpoint, payload = fetch_with_fallback(
+                    ticker=ticker,
+                    from_date=args.from_date,
+                    till_date=args.till_date,
+                    interval=args.interval,
+                    timeout_seconds=args.timeout_seconds,
+                    moex_base_url=args.moex_base_url,
+                    start=start,
+                    page_size=args.page_size,
+                )
+                stats.requests_done += 1
+                page += 1
 
-            if args.dry_run:
-                continue
+                candles_data = payload.get("candles", {}).get("data", [])
+                batch_size = len(candles_data)
+                total_rows_for_ticker += batch_size
+                stats.candles_fetched += batch_size
 
-            inserted = insert_raw_payload(
-                conn=conn,
-                source_endpoint=source_endpoint,
-                ticker=ticker,
-                request_params={
-                    "from": args.from_date,
-                    "till": args.till_date,
-                    "interval": args.interval,
-                },
-                payload=payload,
-            )
-            if inserted:
-                stats.inserted_rows += 1
-                print(f"  OK Upserted {ticker} into stg.raw_moex_data")
+                print(
+                    f"Fetched {batch_size} rows for {ticker} "
+                    f"(page {page}, start={start}) from {source_endpoint} "
+                    f"for {args.from_date}..{args.till_date}"
+                )
+
+                if not args.dry_run:
+                    inserted = insert_raw_payload(
+                        conn=conn,
+                        source_endpoint=source_endpoint,
+                        ticker=ticker,
+                        request_params={
+                            "from": args.from_date,
+                            "till": args.till_date,
+                            "interval": args.interval,
+                            "start": start,
+                            "page": page,
+                            "page_size": args.page_size,
+                        },
+                        payload=payload,
+                    )
+                    if inserted:
+                        stats.inserted_rows += 1
+
+                # Empty or short page means there is no next page.
+                if batch_size == 0 or batch_size < args.page_size:
+                    break
+
+                start += args.page_size
+
+            if page >= args.max_pages:
+                print(
+                    f"  WARN Reached max pages ({args.max_pages}) for {ticker}; "
+                    "consider increasing --max-pages if needed."
+                )
+
+            if not args.dry_run:
+                print(
+                    f"  OK Upserted {ticker}: pages={page}, candles={total_rows_for_ticker}"
+                )
 
         if conn is not None:
             conn.commit()
@@ -251,7 +303,8 @@ def main() -> int:
     print(
         "\nDone. "
         f"HTTP requests: {stats.requests_done}, "
-        f"upserted: {stats.inserted_rows}"
+        f"upserted: {stats.inserted_rows}, "
+        f"candles fetched: {stats.candles_fetched}"
     )
     return 0
 
