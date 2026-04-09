@@ -70,6 +70,36 @@ SELECT create_hypertable(
     if_not_exists => TRUE
 );
 
+CREATE TABLE IF NOT EXISTS mart.technical_indicators (
+    bucket TIMESTAMPTZ NOT NULL,
+    ticker TEXT NOT NULL,
+    interval_type TEXT NOT NULL,
+    open NUMERIC,
+    high NUMERIC,
+    low NUMERIC,
+    close NUMERIC,
+    price_change_pct NUMERIC,
+    volume NUMERIC,
+    sma_7 NUMERIC,
+    sma_20 NUMERIC,
+    sma_50 NUMERIC,
+    rsi NUMERIC,
+    ema_12 NUMERIC,
+    ema_26 NUMERIC,
+    macd_line NUMERIC,
+    macd_signal NUMERIC,
+    macd_histogram NUMERIC,
+    calculated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (ticker, interval_type, bucket)
+);
+
+SELECT create_hypertable(
+    'mart.technical_indicators',
+    'bucket',
+    chunk_time_interval => INTERVAL '7 days',
+    if_not_exists => TRUE
+);
+
 CREATE TABLE IF NOT EXISTS mart.daily_metrics (
     trade_date DATE NOT NULL,
     ticker TEXT NOT NULL,
