@@ -1,8 +1,10 @@
 CREATE EXTENSION IF NOT EXISTS timescaledb;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE SCHEMA IF NOT EXISTS stg;
 CREATE SCHEMA IF NOT EXISTS core;
 CREATE SCHEMA IF NOT EXISTS mart;
+CREATE SCHEMA IF NOT EXISTS auth;
 
 CREATE TABLE IF NOT EXISTS stg.raw_moex_data (
     raw_id BIGINT GENERATED ALWAYS AS IDENTITY,
@@ -88,4 +90,18 @@ CREATE TABLE IF NOT EXISTS mart.anomaly_events (
     threshold_value NUMERIC,
     details JSONB
 );
+
+CREATE TABLE IF NOT EXISTS auth.users (
+    user_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    CHECK (position('@' in email) > 1),
+    CHECK (char_length(password_hash) > 20)
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_users_email
+    ON auth.users (email);
 
