@@ -471,3 +471,58 @@ ORDER BY ticker;
 SELECT count(*) FROM mart.daily_metrics;
 SELECT count(*) FROM mart.anomaly_events;
 ```
+
+## Отдельный блок запуска (Auth API + Frontend + DAG)
+
+Ниже минимальная последовательность запуска всего контура после `git pull`.
+
+### 1) Запуск инфраструктуры
+
+```bash
+docker compose up -d
+```
+
+### 2) Подготовка auth-таблицы пользователей в БД
+
+```bash
+.venv_run/bin/python ./script/init_auth_schema.py
+```
+
+### 3) Запуск Python API авторизации
+
+```bash
+.venv_run/bin/python ./script/auth_api.py
+```
+
+Проверка:
+
+```bash
+curl http://localhost:8001/health
+```
+
+### 4) Запуск frontend-react
+
+```bash
+cd frontend-react
+npm install
+npm run dev -- --host 0.0.0.0 --port 5173
+```
+
+Открыть в браузере:
+- `http://localhost:5173`
+
+Логика авторизации:
+- регистрация требуется только один раз;
+- если email уже существует, форма выполняет вход по email/паролю.
+
+### 5) Запуск DAG-оркестрации
+
+В Airflow UI (`http://localhost:8080`) включить:
+- `pipeline_orchestration_dag`
+- `moex_minute_incremental_sync`
+- `anomaly_on_new_data_dag`
+- `daily_metrics_dag`
+
+Сценарий работы:
+- `pipeline_orchestration_dag` каждую минуту запускает `minute -> anomaly`,
+- `daily_metrics_dag` выполняется раз в день по расписанию.
