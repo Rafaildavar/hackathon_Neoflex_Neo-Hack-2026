@@ -188,3 +188,4 @@ airflow/logs/*
 
 db.md
 task.md
+*.pdf

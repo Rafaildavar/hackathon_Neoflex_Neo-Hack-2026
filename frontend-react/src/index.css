@@ -330,6 +330,49 @@ body {
   height: 320px;
 }
 
+.candlestick-scroll {
+  width: 100%;
+  overflow-x: auto;
+  margin-top: 0.55rem;
+}
+
+.candle-grid-line {
+  stroke: rgba(162, 189, 216, 0.2);
+  stroke-width: 1;
+}
+
+.candle-axis-text {
+  fill: #9fb6cc;
+  font-size: 11px;
+}
+
+.candle-wick-up {
+  stroke: #56cf96;
+  stroke-width: 1.2;
+}
+
+.candle-wick-down {
+  stroke: #ff9ca4;
+  stroke-width: 1.2;
+}
+
+.candle-body-up {
+  fill: rgba(86, 207, 150, 0.9);
+}
+
+.candle-body-down {
+  fill: rgba(255, 156, 164, 0.9);
+}
+
+.candle-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.6rem;
+  color: #d3e4f6;
+  font-size: 0.85rem;
+}
+
 .tables-dual {
   display: grid;
   grid-template-columns: 1fr 1fr;

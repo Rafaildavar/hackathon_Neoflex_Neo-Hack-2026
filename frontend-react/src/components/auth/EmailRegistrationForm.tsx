@@ -1,15 +1,24 @@
-import { FormEvent, useMemo, useState } from "react";
+﻿import { FormEvent, useMemo, useState } from "react";
 import { loginUser, registerUser } from "../../services/authService";
 
 interface EmailRegistrationFormProps {
-  onRegistered: (email: string) => void;
+  onAuthorized: (email: string) => void;
 }
 
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 }
 
-function EmailRegistrationForm({ onRegistered }: EmailRegistrationFormProps) {
+function isAdminLogin(email: string): boolean {
+  return email.trim().toLowerCase() === "admin";
+}
+
+function isValidLoginIdentifier(email: string): boolean {
+  return isValidEmail(email) || isAdminLogin(email);
+}
+
+function EmailRegistrationForm({ onAuthorized }: EmailRegistrationFormProps) {
+  const [mode, setMode] = useState<"register" | "login">("register");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
@@ -17,43 +26,55 @@ function EmailRegistrationForm({ onRegistered }: EmailRegistrationFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const isFormValid = useMemo(() => {
-    return isValidEmail(email) && password.length >= 8 && password === passwordConfirm;
-  }, [email, password, passwordConfirm]);
+    const hasValidIdentifier = mode === "login" ? isValidLoginIdentifier(email) : isValidEmail(email);
+    if (!hasValidIdentifier || password.length === 0) {
+      return false;
+    }
+    if (mode === "login") {
+      return true;
+    }
+    return password.length >= 8 && password === passwordConfirm;
+  }, [mode, email, password, passwordConfirm]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
 
-    if (!isValidEmail(email)) {
+    if (mode === "login" && !isValidLoginIdentifier(email)) {
+      setError("Введите корректный email или тестовый логин admin.");
+      return;
+    }
+
+    if (mode === "register" && !isValidEmail(email)) {
       setError("Введите корректный email-адрес.");
       return;
     }
 
-    if (password.length < 8) {
-      setError("Пароль должен содержать минимум 8 символов.");
+    if (password.length === 0) {
+      setError("Введите пароль.");
       return;
     }
 
-    if (password !== passwordConfirm) {
-      setError("Пароли не совпадают.");
-      return;
+    if (mode === "register") {
+      if (password.length < 8) {
+        setError("Пароль должен содержать минимум 8 символов.");
+        return;
+      }
+
+      if (password !== passwordConfirm) {
+        setError("Пароли не совпадают.");
+        return;
+      }
     }
 
     try {
       setIsSubmitting(true);
-      try {
+      if (mode === "register") {
         await registerUser(email, password);
-      } catch (registerError) {
-        if (
-          registerError instanceof Error &&
-          registerError.message.includes("уже существует")
-        ) {
-          await loginUser(email, password);
-        } else {
-          throw registerError;
-        }
+      } else {
+        await loginUser(email, password);
       }
-      onRegistered(email);
+      onAuthorized(email);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ошибка авторизации.");
     } finally {
@@ -64,23 +85,49 @@ function EmailRegistrationForm({ onRegistered }: EmailRegistrationFormProps) {
   return (
     <form className="glass-panel registration-form reveal" onSubmit={handleSubmit}>
       <div>
+        <div className="segmented" style={{ marginBottom: "0.7rem" }}>
+          <button
+            type="button"
+            className={`segment ${mode === "register" ? "selected" : ""}`}
+            onClick={() => {
+              setMode("register");
+              setError("");
+            }}
+          >
+            Регистрация
+          </button>
+          <button
+            type="button"
+            className={`segment ${mode === "login" ? "selected" : ""}`}
+            onClick={() => {
+              setMode("login");
+              setError("");
+            }}
+          >
+            Вход
+          </button>
+        </div>
+
         <p className="eyebrow">NeoInvest Доступ</p>
-        <h1 className="form-title">Создайте аккаунт по email</h1>
+        <h1 className="form-title">
+          {mode === "register" ? "Создайте аккаунт по email" : "Войдите в аккаунт"}
+        </h1>
         <p className="muted">
-          Регистрация нужна только один раз. Если email уже существует, будет выполнен вход
-          с указанным паролем.
+          {mode === "register"
+            ? "Зарегистрируйтесь, чтобы получить доступ к дашборду с графиками и аномалиями."
+            : "Введите ваш email и пароль, чтобы продолжить анализ рынка. Тестовый вход: admin / admin."}
         </p>
       </div>
 
       <label className="field-label" htmlFor="email">
-        Электронная почта
+        {mode === "login" ? "Электронная почта или логин" : "Электронная почта"}
       </label>
       <input
         id="email"
         className="field-input"
-        type="email"
-        autoComplete="email"
-        placeholder="analitik@company.ru"
+        type={mode === "login" ? "text" : "email"}
+        autoComplete={mode === "login" ? "username" : "email"}
+        placeholder={mode === "login" ? "analitik@company.ru или admin" : "analitik@company.ru"}
         value={email}
         onChange={(event) => setEmail(event.target.value)}
       />
@@ -92,29 +139,39 @@ function EmailRegistrationForm({ onRegistered }: EmailRegistrationFormProps) {
         id="password"
         className="field-input"
         type="password"
-        autoComplete="new-password"
-        placeholder="Минимум 8 символов"
+        autoComplete={mode === "register" ? "new-password" : "current-password"}
+        placeholder={mode === "register" ? "Минимум 8 символов" : "Введите пароль"}
         value={password}
         onChange={(event) => setPassword(event.target.value)}
       />
 
-      <label className="field-label" htmlFor="password-confirm">
-        Подтвердите пароль
-      </label>
-      <input
-        id="password-confirm"
-        className="field-input"
-        type="password"
-        autoComplete="new-password"
-        placeholder="Повторите пароль"
-        value={passwordConfirm}
-        onChange={(event) => setPasswordConfirm(event.target.value)}
-      />
+      {mode === "register" ? (
+        <>
+          <label className="field-label" htmlFor="password-confirm">
+            Подтвердите пароль
+          </label>
+          <input
+            id="password-confirm"
+            className="field-input"
+            type="password"
+            autoComplete="new-password"
+            placeholder="Повторите пароль"
+            value={passwordConfirm}
+            onChange={(event) => setPasswordConfirm(event.target.value)}
+          />
+        </>
+      ) : null}
 
       {error ? <p className="form-error">{error}</p> : null}
 
       <button type="submit" className="primary-button" disabled={!isFormValid || isSubmitting}>
-        {isSubmitting ? "Проверка..." : "Продолжить"}
+        {isSubmitting
+          ? mode === "register"
+            ? "Регистрация..."
+            : "Вход..."
+          : mode === "register"
+            ? "Зарегистрироваться"
+            : "Войти"}
       </button>
     </form>
   );

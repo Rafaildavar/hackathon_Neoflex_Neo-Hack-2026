@@ -1,7 +1,8 @@
-import { MOCK_SERIES, MONITORED_TICKERS } from "../data/mockData";
+﻿import { MOCK_SERIES, MONITORED_TICKERS } from "../data/mockData";
 import {
   AlertPreferences,
   AnomalyRow,
+  CandlestickPoint,
   DashboardFilters,
   DashboardSnapshot,
   DailyMetricPoint,
@@ -9,6 +10,7 @@ import {
   LeaderRow,
   PriceVolumePoint,
   SeverityLevel,
+  TimeResolution,
   VolatilityPoint
 } from "../types";
 
@@ -68,6 +70,42 @@ function formatDateLabel(isoDate: string): string {
     month: "short",
     day: "2-digit"
   });
+}
+
+function formatCandleLabel(date: Date, resolution: TimeResolution): string {
+  if (resolution === "minute") {
+    return date.toLocaleTimeString("ru-RU", {
+      hour: "2-digit",
+      minute: "2-digit"
+    });
+  }
+
+  if (resolution === "hour") {
+    return date.toLocaleDateString("ru-RU", {
+      day: "2-digit",
+      month: "2-digit"
+    }) +
+      " " +
+      date.toLocaleTimeString("ru-RU", {
+        hour: "2-digit",
+        minute: "2-digit"
+      });
+  }
+
+  return date.toLocaleDateString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit"
+  });
+}
+
+function tickerSeed(ticker: string): number {
+  return ticker.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0);
+}
+
+function roundForTicker(value: number, ticker: string): number {
+  const precision = ticker === "VTBR" ? 5 : value < 1 ? 4 : 2;
+  const factor = 10 ** precision;
+  return Math.round(value * factor) / factor;
 }
 
 function createKpis(tickerMap: Record<string, DailyMetricPoint[]>): KpiCardData[] {
@@ -243,6 +281,148 @@ function createAnomalies(tickerMap: Record<string, DailyMetricPoint[]>): Anomaly
     .slice(0, 30);
 }
 
+function buildDailyCandles(series: DailyMetricPoint[], ticker: string): CandlestickPoint[] {
+  if (series.length === 0) {
+    return [];
+  }
+
+  return series.map((point, index) => {
+    const previousClose =
+      index > 0
+        ? series[index - 1].close
+        : point.priceChangePct === -100
+          ? point.close
+          : point.close / (1 + point.priceChangePct / 100);
+
+    const open = roundForTicker(previousClose, ticker);
+    const close = roundForTicker(point.close, ticker);
+
+    const body = Math.abs(close - open);
+    const volatilitySpread = (point.volatility / 100) * point.close * 0.45;
+    const wick = Math.max(body * 0.7, volatilitySpread, point.close * 0.0015);
+
+    const high = roundForTicker(Math.max(open, close) + wick, ticker);
+    const low = roundForTicker(Math.min(open, close) - wick, ticker);
+
+    const date = new Date(`${point.date}T00:00:00`);
+
+    return {
+      timestamp: date.toISOString(),
+      label: formatCandleLabel(date, "day"),
+      open,
+      high,
+      low,
+      close,
+      volume: point.volume
+    };
+  });
+}
+
+function resolutionBarsCount(resolution: TimeResolution, days: number): number {
+  if (resolution === "minute") {
+    return Math.min(320, Math.max(70, days * 4));
+  }
+  if (resolution === "hour") {
+    return Math.min(260, Math.max(50, days * 3));
+  }
+  return days;
+}
+
+function buildIntradayCandles(
+  series: DailyMetricPoint[],
+  ticker: string,
+  resolution: Exclude<TimeResolution, "day">,
+  days: number
+): CandlestickPoint[] {
+  const seed = tickerSeed(ticker);
+  const bars = resolutionBarsCount(resolution, days);
+  const stepMs = resolution === "hour" ? 60 * 60 * 1000 : 5 * 60 * 1000;
+
+  const fallbackPrice = 100 + (seed % 50) * 1.2;
+  const latestClose = series.length > 0 ? series[series.length - 1].close : fallbackPrice;
+  const averageVolume =
+    series.length > 0
+      ? series.reduce((sum, point) => sum + point.volume, 0) / Math.max(series.length, 1)
+      : 1_000_000;
+
+  const barsPerDay = resolution === "hour" ? 8 : 40;
+  const baseVolume = averageVolume / barsPerDay;
+  const now = Date.now();
+  const start = now - bars * stepMs;
+
+  let currentPrice = latestClose * (1 + Math.sin(seed * 0.17) * 0.01);
+  const candles: CandlestickPoint[] = [];
+
+  for (let index = 0; index < bars; index += 1) {
+    const timestampDate = new Date(start + index * stepMs);
+
+    const drift = Math.sin((index + seed) / 11) * 0.0014 + Math.cos((index + seed) / 17) * 0.0009;
+    const impulse =
+      index % (resolution === "minute" ? 37 : 29) === 0
+        ? index % 2 === 0
+          ? 0.0045
+          : -0.004
+        : 0;
+
+    const open = currentPrice;
+    const close = open * (1 + drift + impulse);
+
+    const wickMultiplier =
+      resolution === "minute"
+        ? 0.0014 + Math.abs(Math.sin((index + seed) / 6)) * 0.0017
+        : 0.0019 + Math.abs(Math.cos((index + seed) / 7)) * 0.0022;
+
+    const high = Math.max(open, close) * (1 + wickMultiplier * (1.15 + Math.abs(Math.sin(index * 0.28))));
+    const low = Math.min(open, close) * (1 - wickMultiplier * (1.15 + Math.abs(Math.cos(index * 0.34))));
+
+    const volume = Math.max(
+      100,
+      Math.round(baseVolume * (1 + Math.abs(Math.sin((index + seed) / 5)) * 0.95 + (impulse !== 0 ? 1.1 : 0)))
+    );
+
+    candles.push({
+      timestamp: timestampDate.toISOString(),
+      label: formatCandleLabel(timestampDate, resolution),
+      open: roundForTicker(open, ticker),
+      high: roundForTicker(high, ticker),
+      low: roundForTicker(low, ticker),
+      close: roundForTicker(close, ticker),
+      volume
+    });
+
+    currentPrice = close;
+  }
+
+  return candles;
+}
+
+function createCandlestickSeries(
+  tickerMap: Record<string, DailyMetricPoint[]>,
+  filters: DashboardFilters
+): { ticker: string; series: CandlestickPoint[] } {
+  const fallbackTicker = Object.keys(tickerMap)[0] ?? MONITORED_TICKERS[0];
+  const ticker = filters.tickers[0] ?? fallbackTicker;
+  const series = tickerMap[ticker] ?? [];
+  const rangeDays = rangeToDays(filters.range);
+
+  if (filters.resolution === "day") {
+    return {
+      ticker,
+      series: buildDailyCandles(series.slice(-rangeDays), ticker)
+    };
+  }
+
+  return {
+    ticker,
+    series: buildIntradayCandles(
+      series.slice(-Math.min(rangeDays, 30)),
+      ticker,
+      filters.resolution,
+      rangeDays
+    )
+  };
+}
+
 export function getStoredAlertPreferences(defaultEmail: string): AlertPreferences {
   const raw = localStorage.getItem(ALERT_STORAGE_KEY);
   if (!raw) {
@@ -288,6 +468,8 @@ export async function fetchDashboardSnapshot(filters: DashboardFilters): Promise
     tickerMap[ticker] = fullSeries.slice(-days);
   });
 
+  const candlestickData = createCandlestickSeries(tickerMap, filters);
+
   return {
     generatedAt: new Date().toISOString(),
     delayedByMinutes: MOEX_DELAY_MINUTES,
@@ -295,6 +477,8 @@ export async function fetchDashboardSnapshot(filters: DashboardFilters): Promise
     kpis: createKpis(tickerMap),
     priceVolumeSeries: createPriceVolumeSeries(tickerMap),
     volatilitySeries: createVolatilitySeries(tickerMap),
+    candlestickTicker: candlestickData.ticker,
+    candlestickSeries: candlestickData.series,
     leaders: createLeaders(tickerMap),
     anomalies: createAnomalies(tickerMap)
   };

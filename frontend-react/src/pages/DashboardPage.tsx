@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import AlertSettings from "../components/dashboard/AlertSettings";
 import AnomaliesTable from "../components/dashboard/AnomaliesTable";
+import CandlestickChart from "../components/dashboard/CandlestickChart";
 import FiltersPanel from "../components/dashboard/FiltersPanel";
 import KpiCards from "../components/dashboard/KpiCards";
 import LeadersTable from "../components/dashboard/LeadersTable";
@@ -25,6 +26,7 @@ function DashboardPage({ userEmail }: DashboardPageProps) {
   const [filters, setFilters] = useState<DashboardFilters>({
     tickers: ["SBER", "GAZP", "LKOH"],
     range: "30d",
+    resolution: "day",
     metricType: "price"
   });
   const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(null);
@@ -96,12 +98,20 @@ function DashboardPage({ userEmail }: DashboardPageProps) {
         <>
           <FiltersPanel availableTickers={snapshot.availableTickers} value={filters} onChange={setFilters} />
           <KpiCards cards={snapshot.kpis} />
+
+          <CandlestickChart
+            ticker={snapshot.candlestickTicker}
+            resolution={filters.resolution}
+            data={snapshot.candlestickSeries}
+          />
+
           {showPriceVolumeChart ? (
             <PriceAndVolumeChart data={snapshot.priceVolumeSeries} tickers={selectedTickers} />
           ) : null}
           {showVolatilityChart ? (
             <VolatilityChart data={snapshot.volatilitySeries} tickers={selectedTickers} />
           ) : null}
+
           <LeadersTable data={snapshot.leaders} />
           <AnomaliesTable rows={snapshot.anomalies} />
           <AlertSettings initialValue={alertPreferences} onSave={handleSaveAlerts} />
