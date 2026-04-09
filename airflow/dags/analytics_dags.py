@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -257,6 +257,7 @@ with DAG(
     start_date=datetime(2026, 1, 1),
     schedule="10 0 * * *",
     catchup=False,
+    max_active_runs=1,
     tags=["analytics", "daily", "metrics"],
 ) as daily_metrics_dag:
     PythonOperator(
@@ -268,8 +269,9 @@ with DAG(
 with DAG(
     dag_id="anomaly_on_new_data_dag",
     start_date=datetime(2026, 1, 1),
-    schedule=timedelta(minutes=5),
+    schedule=None,
     catchup=False,
+    max_active_runs=1,
     tags=["analytics", "anomaly", "event-driven"],
 ) as anomaly_on_new_data_dag:
     check_new_data = ShortCircuitOperator(

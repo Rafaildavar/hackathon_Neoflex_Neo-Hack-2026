@@ -305,7 +305,7 @@ def run_incremental_minute_sync() -> None:
 with DAG(
     dag_id="moex_minute_incremental_sync",
     start_date=datetime(2026, 1, 1),
-    schedule="*/1 * * * *",
+    schedule=None,
     catchup=False,
     max_active_runs=1,
     tags=["moex", "minute", "incremental"],
