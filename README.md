@@ -52,6 +52,45 @@ docker compose up -d
 - Airflow: `admin / admin`
 - PostgreSQL: `moex / moex_pass`
 
+## Инструкция по моей части (инфра + ingestion + transform)
+
+Ниже минимальный поток запуска, который можно повторить с нуля:
+
+1) Поднять Docker-инфраструктуру:
+
+```bash
+docker compose up -d
+```
+
+2) Проверить, что контейнеры живы:
+
+```bash
+docker compose ps
+```
+
+3) Загрузить сырые данные MOEX в `stg.raw_moex_data`:
+
+```bash
+python3 -u ./script/load_raw_moex_candles.py --from-date 2026-03-08 --till-date 2026-04-08
+```
+
+4) Преобразовать payload в свечи `core.minute_candles`:
+
+```bash
+python3 -u ./script/transform_raw_to_candles.py
+```
+
+5) Быстрая проверка в БД:
+
+```sql
+SELECT COUNT(*) FROM stg.raw_moex_data;
+SELECT COUNT(*) FROM core.minute_candles;
+```
+
+6) Airflow UI для мониторинга:
+- `http://localhost:8080`
+- логин/пароль: `admin / admin` (или значения из `.env`)
+
 ## Что инициализируется в БД
 
 При первом старте контейнера БД выполняются скрипты из `sql/init`:
