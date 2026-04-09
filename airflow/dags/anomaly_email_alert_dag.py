@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import logging
 import os
 import smtplib
+import time
 from datetime import datetime
 from email.message import EmailMessage
+from contextlib import contextmanager
 from typing import Any
 
 import psycopg2
 from airflow import DAG
 from airflow.operators.python import PythonOperator
+
+logger = logging.getLogger(__name__)
 
 
 def _pg_connect() -> psycopg2.extensions.connection:
@@ -35,26 +40,40 @@ def _ensure_notification_table(cur: psycopg2.extensions.cursor) -> None:
     )
 
 
-def _smtp_send(recipient: str, subject: str, body: str) -> None:
+@contextmanager
+def _smtp_open():
+    """Одно подключение на батч: отдельный login() на каждое письмо часто рвёт сессию у провайдера."""
     smtp_host = os.getenv("SMTP_HOST", "localhost")
     smtp_port = int(os.getenv("SMTP_PORT", "1025"))
     smtp_user = os.getenv("SMTP_USER")
     smtp_password = os.getenv("SMTP_PASSWORD")
-    smtp_sender = os.getenv("ALERT_EMAIL_SENDER", "alerts@neo-invest.local")
     smtp_use_tls = os.getenv("SMTP_USE_TLS", "false").lower() == "true"
+    smtp_use_ssl = os.getenv("SMTP_USE_SSL", "false").lower() == "true"
 
+    smtp_cls = smtplib.SMTP_SSL if smtp_use_ssl else smtplib.SMTP
+    server = smtp_cls(smtp_host, smtp_port, timeout=30)
+    try:
+        if smtp_use_tls:
+            server.starttls()
+        if smtp_user and smtp_password:
+            server.login(smtp_user, smtp_password)
+        yield server
+    finally:
+        try:
+            server.quit()
+        except Exception:
+            pass
+
+
+def _smtp_send_one(
+    server: smtplib.SMTP, smtp_sender: str, recipient: str, subject: str, body: str
+) -> None:
     msg = EmailMessage()
     msg["From"] = smtp_sender
     msg["To"] = recipient
     msg["Subject"] = subject
     msg.set_content(body)
-
-    with smtplib.SMTP(smtp_host, smtp_port, timeout=20) as server:
-        if smtp_use_tls:
-            server.starttls()
-        if smtp_user and smtp_password:
-            server.login(smtp_user, smtp_password)
-        server.send_message(msg)
+    server.send_message(msg)
 
 
 def _build_email(event: tuple[Any, ...]) -> tuple[str, str]:
@@ -87,8 +106,11 @@ def _build_email(event: tuple[Any, ...]) -> tuple[str, str]:
 
 
 def send_anomaly_email_alerts() -> None:
+    smtp_sender = os.getenv("ALERT_EMAIL_SENDER", "alerts@neo-invest.local")
+    pause_sec = float(os.getenv("SMTP_SEND_PAUSE_SEC", "0.35") or "0")
     conn = _pg_connect()
     sent = 0
+    failed = 0
     try:
         with conn.cursor() as cur:
             _ensure_notification_table(cur)
@@ -119,26 +141,57 @@ def send_anomaly_email_alerts() -> None:
             )
             rows = cur.fetchall()
 
-        for row in rows:
-            event_id = row[0]
-            recipient = row[8]
-            subject, body = _build_email(row)
+        if not rows:
+            logger.info("Anomaly email DAG: nothing to send")
+            return
 
-            _smtp_send(recipient=recipient, subject=subject, body=body)
+        with _smtp_open() as server:
+            for row in rows:
+                event_id = row[0]
+                recipient = row[8]
+                subject, body_text = _build_email(row)
+                try:
+                    _smtp_send_one(server, smtp_sender, recipient, subject, body_text)
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            """
+                            INSERT INTO mart.anomaly_email_notifications (event_id, email)
+                            VALUES (%s, %s)
+                            ON CONFLICT (event_id, email) DO NOTHING
+                            """,
+                            (event_id, recipient),
+                        )
+                    conn.commit()
+                    sent += 1
+                    if pause_sec > 0:
+                        time.sleep(pause_sec)
+                except Exception as exc:
+                    conn.rollback()
+                    failed += 1
+                    logger.exception(
+                        "Anomaly email: failed event_id=%s to=%s: %s",
+                        event_id,
+                        recipient,
+                        exc,
+                    )
 
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO mart.anomaly_email_notifications (event_id, email)
-                    VALUES (%s, %s)
-                    ON CONFLICT (event_id, email) DO NOTHING
-                    """,
-                    (event_id, recipient),
-                )
-            conn.commit()
-            sent += 1
-
-        print(f"Anomaly email DAG: sent={sent}, pending_checked={len(rows)}")
+        if failed and sent == 0:
+            raise RuntimeError(
+                f"Anomaly email DAG: all sends failed, batch={len(rows)}"
+            )
+        if failed:
+            logger.warning(
+                "Anomaly email DAG: partial failure sent=%s failed=%s batch=%s",
+                sent,
+                failed,
+                len(rows),
+            )
+        else:
+            logger.info(
+                "Anomaly email DAG: sent=%s, pending_checked=%s",
+                sent,
+                len(rows),
+            )
     finally:
         conn.close()
 
