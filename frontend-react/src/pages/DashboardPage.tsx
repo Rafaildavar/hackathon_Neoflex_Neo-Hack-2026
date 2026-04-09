@@ -24,16 +24,28 @@ function DashboardPage({ userEmail }: DashboardPageProps) {
   const navigate = useNavigate();
 
   const [filters, setFilters] = useState<DashboardFilters>({
-    tickers: ["SBER", "GAZP", "LKOH"],
-    range: "30d",
-    resolution: "day",
-    metricType: "price"
+    mainTickers: ["SBER", "GAZP", "LKOH"],
+    mainRange: "30d",
+    mainResolution: "day",
+    mainMetricType: "price",
+    candlestickTicker: "SBER",
+    candlestickRange: "30d",
+    candlestickResolution: "day"
   });
   const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [alertPreferences, setAlertPreferences] = useState<AlertPreferences>(
     getStoredAlertPreferences(userEmail)
   );
+
+  useEffect(() => {
+    setFilters((previous) => {
+      if (snapshot?.availableTickers && !snapshot.availableTickers.includes(previous.candlestickTicker)) {
+        return { ...previous, candlestickTicker: snapshot.availableTickers[0] ?? "SBER" };
+      }
+      return previous;
+    });
+  }, [snapshot?.availableTickers]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -58,10 +70,10 @@ function DashboardPage({ userEmail }: DashboardPageProps) {
 
   const selectedTickers = useMemo(() => {
     if (!snapshot?.availableTickers) {
-      return filters.tickers;
+      return filters.mainTickers;
     }
-    return filters.tickers.filter((ticker) => snapshot.availableTickers.includes(ticker));
-  }, [filters.tickers, snapshot?.availableTickers]);
+    return filters.mainTickers.filter((ticker) => snapshot.availableTickers.includes(ticker));
+  }, [filters.mainTickers, snapshot?.availableTickers]);
 
   const handleLogout = () => {
     logoutUser();
@@ -73,8 +85,9 @@ function DashboardPage({ userEmail }: DashboardPageProps) {
     saveAlertPreferences(value);
   };
 
-  const showPriceVolumeChart = filters.metricType === "price" || filters.metricType === "volume";
-  const showVolatilityChart = filters.metricType === "volatility";
+  const showPriceVolumeChart =
+    filters.mainMetricType === "price" || filters.mainMetricType === "volume";
+  const showVolatilityChart = filters.mainMetricType === "volatility";
 
   return (
     <main className="page-shell dashboard-layout">
@@ -95,27 +108,32 @@ function DashboardPage({ userEmail }: DashboardPageProps) {
       </header>
 
       {snapshot ? (
-        <>
-          <FiltersPanel availableTickers={snapshot.availableTickers} value={filters} onChange={setFilters} />
-          <KpiCards cards={snapshot.kpis} />
+        <div className="dashboard-content">
+          <aside className="dashboard-sidebar">
+            <FiltersPanel availableTickers={snapshot.availableTickers} value={filters} onChange={setFilters} />
+            <AlertSettings initialValue={alertPreferences} onSave={handleSaveAlerts} />
+          </aside>
 
-          <CandlestickChart
-            ticker={snapshot.candlestickTicker}
-            resolution={filters.resolution}
-            data={snapshot.candlestickSeries}
-          />
+          <section className="dashboard-main">
+            <KpiCards cards={snapshot.kpis} />
 
-          {showPriceVolumeChart ? (
-            <PriceAndVolumeChart data={snapshot.priceVolumeSeries} tickers={selectedTickers} />
-          ) : null}
-          {showVolatilityChart ? (
-            <VolatilityChart data={snapshot.volatilitySeries} tickers={selectedTickers} />
-          ) : null}
+            {showPriceVolumeChart ? (
+              <PriceAndVolumeChart data={snapshot.priceVolumeSeries} tickers={selectedTickers} />
+            ) : null}
+            {showVolatilityChart ? (
+              <VolatilityChart data={snapshot.volatilitySeries} tickers={selectedTickers} />
+            ) : null}
 
-          <LeadersTable data={snapshot.leaders} />
-          <AnomaliesTable rows={snapshot.anomalies} />
-          <AlertSettings initialValue={alertPreferences} onSave={handleSaveAlerts} />
-        </>
+            <CandlestickChart
+              ticker={snapshot.candlestickTicker}
+              resolution={filters.candlestickResolution}
+              data={snapshot.candlestickSeries}
+            />
+
+            <LeadersTable data={snapshot.leaders} />
+            <AnomaliesTable rows={snapshot.anomalies} />
+          </section>
+        </div>
       ) : (
         <section className="glass-panel">{isLoading ? "Загрузка дашборда..." : "Данные не найдены."}</section>
       )}

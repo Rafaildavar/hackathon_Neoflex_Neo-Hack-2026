@@ -55,7 +55,7 @@ function CandlestickChart({ ticker, resolution, data }: CandlestickChartProps) {
     const labelStep = Math.max(1, Math.ceil(data.length / 9));
     const xLabels = data
       .map((point, index) => ({ point, index }))
-      .filter((item, idx) => idx % labelStep === 0 || idx === data.length - 1);
+      .filter((_, idx) => idx % labelStep === 0 || idx === data.length - 1);
 
     return {
       svgHeight,
