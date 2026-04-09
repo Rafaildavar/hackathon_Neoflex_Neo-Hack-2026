@@ -102,6 +102,7 @@ SELECT COUNT(*) FROM core.minute_candles;
     - `stg.raw_moex_data`
     - `core.minute_candles`
     - `mart.dashboard_metrics`
+    - `mart.technical_indicators`
   - Сервисные таблицы:
     - `mart.daily_metrics`
     - `mart.anomaly_events`
@@ -195,6 +196,33 @@ df_daily = load_daily_metrics(ticker="LKOH", from_date="2026-04-01")
 - `load_daily_metrics(ticker, from_date, to_date)` - дневные метрики
 - `load_dashboard_metrics(ticker, interval_type, from_ts, to_ts)` - с техническими индикаторами
 - `load_raw_payloads(ticker, from_ts, to_ts)` - сырые MOEX payload
+
+### 4. Технические индикаторы (`analyze/multiplication.py`)
+
+Функция считает `RSI`, `MACD`, `SMA 7/20/50` и сохраняет результат в `mart.technical_indicators`.
+
+Коротко о функциях:
+- `load_candles()` — читает свечи из `core.*`
+- `enrich_indicators()` — считает `RSI`, `MACD`, `SMA`
+- `calculate_technical_indicators()` — читает, считает и сохраняет
+
+Инициализация таблицы и полный расчёт:
+
+```powershell
+python .\script\init_technical_indicators.py --interval daily
+```
+
+Запуск по всем тикерам:
+
+```powershell
+python -m analyze.multiplication --interval daily
+```
+
+Запуск по одному тикеру:
+
+```powershell
+python -m analyze.multiplication --interval daily --ticker SBER
+```
 
 ## Полезные команды Docker
 
