@@ -330,3 +330,50 @@ CALL refresh_continuous_aggregate('core.weekly_candles', NULL, NULL);
 .venv_run/bin/python -u ./script/transform_raw_to_candles.py --from-date 2026-03-10 --till-date 2026-04-08 --refresh-aggregates
 .venv_run/bin/python -u ./script/verify_pipeline_counts.py
 ```
+
+## Риал тайм
+
+Поминутное дозаполнение работает через Airflow DAG:
+- **DAG ID:** `moex_minute_incremental_sync`
+- **Файл:** `airflow/dags/moex_minute_incremental_dag.py`
+- **Расписание:** каждую минуту (`*/1 * * * *`)
+
+### Как это работает
+
+Для каждого тикера DAG:
+1. Читает из `core.minute_candles` последнюю загруженную минуту (`max(bucket)`).
+2. Запрашивает MOEX candles с интервалом 1 минута.
+3. Сохраняет raw payload в `stg.raw_moex_data`.
+4. Пишет в `core.minute_candles` только новые минуты (`bucket > last_bucket`) через upsert.
+5. Обновляет continuous aggregates (`core.hourly_candles`, `core.daily_candles`) только по затронутому диапазону.
+
+Это именно **дозаполнение**, а не полная перезагрузка данных.
+
+### Запуск для коллеги
+
+1) Убедиться, что инфраструктура запущена:
+```bash
+docker compose up -d
+```
+
+2) Открыть Airflow UI:
+- `http://localhost:8080`
+- логин/пароль из `.env` (по умолчанию `admin/admin`)
+
+3) Включить DAG `moex_minute_incremental_sync` и выполнить первый ручной запуск (`Trigger DAG`).
+
+4) Дальше DAG будет работать автоматически каждую минуту.
+
+### Быстрая проверка, что риал тайм идёт
+
+```sql
+SELECT max(ingested_at) AS last_raw
+FROM stg.raw_moex_data;
+
+SELECT ticker, max(bucket) AS last_bucket
+FROM core.minute_candles
+GROUP BY ticker
+ORDER BY ticker;
+```
+
+Если `last_raw` и `last_bucket` обновляются по времени, значит поминутный инкремент работает корректно.
