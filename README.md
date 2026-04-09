@@ -406,3 +406,68 @@ ORDER BY ticker;
 ```
 
 Если `last_raw` и `last_bucket` обновляются по времени, значит поминутный инкремент работает корректно.
+
+## Запуск DAG'ов в Airflow
+
+Ниже краткая инструкция, как запускать DAG'и из этого репозитория.
+
+### Какие DAG'и есть
+
+- `bootstrap_healthcheck` — технический healthcheck DAG (`schedule=None`).
+- `moex_minute_incremental_sync` — дозаполнение минутных свечей (каждую минуту).
+- `daily_metrics_dag` — расчет `mart.daily_metrics` (ежедневно в `00:10`).
+- `anomaly_on_new_data_dag` — проверка аномалий при появлении новых данных (`каждые 5 минут`).
+
+### 1) Поднять сервисы
+
+```bash
+docker compose up -d
+docker compose ps
+```
+
+### 2) Открыть Airflow UI
+
+- URL: `http://localhost:8080`
+- Логин/пароль: из `.env` (по умолчанию `admin/admin`)
+
+### 3) Включить DAG
+
+В списке DAG'ов переведите переключатель нужного DAG в состояние **On**.
+
+### 4) Запустить DAG вручную
+
+В UI:
+- откройте страницу DAG,
+- нажмите **Trigger DAG**,
+- проверьте статус запуска в **Grid**/**Graph**.
+
+### 5) Проверить логи задачи
+
+- откройте конкретный `Task Instance` в Grid/Graph,
+- нажмите **Log**.
+
+CLI-альтернатива:
+
+```bash
+docker exec neo_hack_airflow_webserver airflow dags list
+docker exec neo_hack_airflow_webserver airflow dags trigger moex_minute_incremental_sync
+docker exec neo_hack_airflow_webserver airflow tasks list moex_minute_incremental_sync --tree
+```
+
+### 6) Остановить DAG
+
+В UI переведите переключатель DAG обратно в **Off**.
+
+### Проверка результата в БД
+
+```sql
+SELECT max(ingested_at) AS last_raw FROM stg.raw_moex_data;
+
+SELECT ticker, max(bucket) AS last_bucket
+FROM core.minute_candles
+GROUP BY ticker
+ORDER BY ticker;
+
+SELECT count(*) FROM mart.daily_metrics;
+SELECT count(*) FROM mart.anomaly_events;
+```
