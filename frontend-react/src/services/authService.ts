@@ -15,7 +15,10 @@ const DEFAULT_TEST_USER: LocalAuthUser = {
 const SESSION_STORAGE_KEY = "neo_invest_session_user";
 const LEGACY_SESSION_STORAGE_KEY = "neo_invest_registered_user";
 const LOCAL_USERS_STORAGE_KEY = "neo_invest_local_users";
-const AUTH_API_BASE_URL = import.meta.env.VITE_AUTH_API_BASE_URL ?? "http://localhost:8001";
+const AUTH_API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ??
+  import.meta.env.VITE_AUTH_API_BASE_URL ??
+  "http://localhost:8001";
 const AUTH_STATE_EVENT = "neo_invest_auth_state_changed";
 
 class AuthApiUnavailableError extends Error {
@@ -93,9 +96,13 @@ async function callAuthApi(
     throw new AuthApiUnavailableError();
   }
 
-  const data = (await response.json().catch(() => ({}))) as { email?: string; error?: string };
+  const data = (await response.json().catch(() => ({}))) as {
+    email?: string;
+    error?: string;
+    detail?: string;
+  };
   if (!response.ok) {
-    throw new Error(data.error ?? "Ошибка авторизации.");
+    throw new Error(data.error ?? data.detail ?? "Ошибка авторизации.");
   }
 
   if (!data.email) {

@@ -22,8 +22,14 @@ npm install
 npm run dev
 ```
 
+Перед запуском задайте API URL (опционально, по умолчанию `http://localhost:8001`):
+
+```bash
+cp .env.example .env
+```
+
 ## Notes
 
-- Uses mock market data and localStorage only.
-- API integration can be added in `src/services/dashboardService.ts`.
+- Dashboard и auth работают через backend API.
+- Ожидаемый endpoint snapshot: `POST /api/v1/dashboard/snapshot`.
 - Current environment in this session does not contain Node.js, so install/start checks were not executed here.

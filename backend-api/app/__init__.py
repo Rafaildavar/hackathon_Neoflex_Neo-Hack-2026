@@ -1,0 +1,2 @@
+"""NeoInvest backend API package."""
+

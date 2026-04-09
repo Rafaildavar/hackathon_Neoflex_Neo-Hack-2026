@@ -34,6 +34,7 @@ function DashboardPage({ userEmail }: DashboardPageProps) {
   });
   const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [alertPreferences, setAlertPreferences] = useState<AlertPreferences>(
     getStoredAlertPreferences(userEmail)
   );
@@ -50,11 +51,18 @@ function DashboardPage({ userEmail }: DashboardPageProps) {
   useEffect(() => {
     let isCancelled = false;
     setIsLoading(true);
+    setLoadError("");
 
     fetchDashboardSnapshot(filters)
       .then((result) => {
         if (!isCancelled) {
           setSnapshot(result);
+        }
+      })
+      .catch((error) => {
+        if (!isCancelled) {
+          setSnapshot(null);
+          setLoadError(error instanceof Error ? error.message : "Ошибка загрузки дашборда.");
         }
       })
       .finally(() => {
@@ -135,7 +143,9 @@ function DashboardPage({ userEmail }: DashboardPageProps) {
           </section>
         </div>
       ) : (
-        <section className="glass-panel">{isLoading ? "Загрузка дашборда..." : "Данные не найдены."}</section>
+        <section className="glass-panel">
+          {isLoading ? "Загрузка дашборда..." : loadError || "Данные не найдены."}
+        </section>
       )}
     </main>
   );
