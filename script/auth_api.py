@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
 
 from flask import Flask, request
 from flask_cors import CORS
@@ -31,6 +32,12 @@ def normalize_email(email: str) -> str:
     return email.strip().lower()
 
 
+def parse_env_tickers() -> list[str]:
+    raw = os.getenv("MOEX_TICKERS", "SBER,GAZP,LKOH,YDEX,VTBR,ROSN,NVTK")
+    tickers = [ticker.strip().upper() for ticker in raw.split(",") if ticker.strip()]
+    return sorted(set(tickers))
+
+
 app = Flask(__name__)
 CORS(app)
 
@@ -38,6 +45,43 @@ CORS(app)
 @app.get("/health")
 def health() -> tuple[dict[str, str], int]:
     return {"status": "ok"}, 200
+
+
+@app.get("/api/tickers")
+def get_tickers() -> tuple[dict[str, Any], int]:
+    fallback_tickers = parse_env_tickers()
+
+    try:
+        conn = db_conn()
+    except RuntimeError:
+        return {"tickers": fallback_tickers}, 200
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT DISTINCT ticker
+                FROM (
+                    SELECT ticker FROM core.daily_candles
+                    UNION
+                    SELECT ticker FROM core.minute_candles
+                    UNION
+                    SELECT ticker FROM stg.raw_moex_data
+                ) t
+                WHERE ticker IS NOT NULL
+                  AND char_length(trim(ticker)) > 0
+                ORDER BY ticker
+                """
+            )
+            rows = cur.fetchall()
+    except Exception:
+        return {"tickers": fallback_tickers}, 200
+    finally:
+        conn.close()
+
+    db_tickers = [str(row[0]).upper() for row in rows if row and row[0]]
+    tickers = db_tickers if db_tickers else fallback_tickers
+    return {"tickers": tickers}, 200
 
 
 @app.post("/auth/register")

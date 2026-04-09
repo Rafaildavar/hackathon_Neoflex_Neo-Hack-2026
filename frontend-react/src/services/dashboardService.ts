@@ -19,6 +19,14 @@ import {
 
 const ALERT_STORAGE_KEY = "neo_invest_alert_preferences";
 const MOEX_DELAY_MINUTES = 15;
+const DASHBOARD_API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ??
+  import.meta.env.VITE_AUTH_API_BASE_URL ??
+  "http://localhost:8001";
+const TICKER_CACHE_TTL_MS = 60_000;
+
+let cachedAvailableTickers: string[] | null = null;
+let cachedAvailableTickersAt = 0;
 
 interface ResolvedTickerPoint {
   timestamp: string;
@@ -26,6 +34,56 @@ interface ResolvedTickerPoint {
   close: number;
   volume: number;
   volatility: number;
+}
+
+function normalizeTickers(tickers: string[]): string[] {
+  return Array.from(
+    new Set(
+      tickers
+        .map((ticker) => ticker.trim().toUpperCase())
+        .filter((ticker) => ticker.length > 0)
+    )
+  );
+}
+
+function getMockSeriesForTicker(ticker: string): DailyMetricPoint[] {
+  const direct = MOCK_SERIES[ticker];
+  if (direct) {
+    return direct;
+  }
+
+  const fallback = MOCK_SERIES[MONITORED_TICKERS[0]] ?? [];
+  return fallback.map((point) => ({
+    ...point,
+    ticker
+  }));
+}
+
+async function fetchAvailableTickersFromBackend(): Promise<string[]> {
+  const now = Date.now();
+  if (cachedAvailableTickers && now - cachedAvailableTickersAt < TICKER_CACHE_TTL_MS) {
+    return cachedAvailableTickers;
+  }
+
+  try {
+    const response = await fetch(`${DASHBOARD_API_BASE_URL}/api/tickers`);
+    if (response.ok) {
+      const payload = (await response.json()) as { tickers?: string[] };
+      const normalized = normalizeTickers(payload.tickers ?? []);
+      if (normalized.length > 0) {
+        cachedAvailableTickers = normalized;
+        cachedAvailableTickersAt = now;
+        return normalized;
+      }
+    }
+  } catch {
+    // Fall through to static fallback when backend is unavailable.
+  }
+
+  const fallback = normalizeTickers(MONITORED_TICKERS);
+  cachedAvailableTickers = fallback;
+  cachedAvailableTickersAt = now;
+  return fallback;
 }
 
 function rangeToDays(range: TimeRange): number {
@@ -593,11 +651,21 @@ export function saveAlertPreferences(preferences: AlertPreferences): void {
 export async function fetchDashboardSnapshot(filters: DashboardFilters): Promise<DashboardSnapshot> {
   await new Promise((resolve) => setTimeout(resolve, 180));
 
-  const baseTickers = filters.mainTickers.length > 0 ? filters.mainTickers : MONITORED_TICKERS;
+  const availableTickers = await fetchAvailableTickersFromBackend();
+  const mainTickersFromFilters = filters.mainTickers.filter((ticker) =>
+    availableTickers.includes(ticker)
+  );
+  const baseTickers =
+    mainTickersFromFilters.length > 0
+      ? mainTickersFromFilters
+      : availableTickers.slice(0, 3);
+  const candlestickTicker = availableTickers.includes(filters.candlestickTicker)
+    ? filters.candlestickTicker
+    : baseTickers[0] ?? availableTickers[0] ?? MONITORED_TICKERS[0];
   const requestedTickers = Array.from(
     new Set([
       ...baseTickers,
-      filters.candlestickTicker || baseTickers[0] || MONITORED_TICKERS[0]
+      candlestickTicker
     ])
   );
   const days = Math.max(rangeToDays(filters.mainRange), rangeToDays(filters.candlestickRange));
@@ -605,7 +673,7 @@ export async function fetchDashboardSnapshot(filters: DashboardFilters): Promise
   const mainTickerMap: Record<string, DailyMetricPoint[]> = {};
 
   requestedTickers.forEach((ticker) => {
-    const fullSeries = MOCK_SERIES[ticker] ?? [];
+    const fullSeries = getMockSeriesForTicker(ticker);
     tickerMap[ticker] = fullSeries.slice(-days);
   });
 
@@ -625,7 +693,7 @@ export async function fetchDashboardSnapshot(filters: DashboardFilters): Promise
   return {
     generatedAt: new Date().toISOString(),
     delayedByMinutes: MOEX_DELAY_MINUTES,
-    availableTickers: MONITORED_TICKERS,
+    availableTickers,
     kpis: createKpis(mainTickerMap),
     priceVolumeSeries: createPriceVolumeSeries(resolvedTickerMap),
     volatilitySeries: createVolatilitySeries(resolvedTickerMap),
