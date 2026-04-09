@@ -211,3 +211,82 @@ python3 -m pip install -r requirements.txt
 - Данные MOEX ISS в бесплатном доступе имеют задержку около 15 минут.
 - Соблюдайте лимиты API по частоте запросов.
 - На этом этапе реализован инфраструктурный bootstrap и базовые ETL-скрипты.
+
+## Отдельный блок: как пользоваться тем, что я сделал
+
+Этот блок описывает мой контур работы с данными: от сырого слоя до агрегатов по часам, дням и неделям.
+
+### Шаг 1. Поднять инфраструктуру
+
+```bash
+docker compose up -d
+docker compose ps
+```
+
+### Шаг 2. Загрузить сырой слой (`stg.raw_moex_data`)
+
+```bash
+python3 -u ./script/load_raw_moex_candles.py --from-date 2026-03-08 --till-date 2026-04-08
+```
+
+Проверка:
+
+```sql
+SELECT COUNT(*) AS raw_rows FROM stg.raw_moex_data;
+```
+
+### Шаг 3. Преобразовать в минутные свечи (`core.minute_candles`)
+
+```bash
+python3 -u ./script/transform_raw_to_candles.py
+```
+
+Проверка:
+
+```sql
+SELECT COUNT(*) AS minute_rows FROM core.minute_candles;
+```
+
+### Шаг 4. Получить срезы по часам / дням / неделям
+
+После загрузки и трансформации данные доступны через continuous aggregates.
+
+#### По часам (`core.hourly_candles`)
+
+```sql
+SELECT *
+FROM core.hourly_candles
+WHERE ticker = 'SBER'
+ORDER BY bucket DESC
+LIMIT 24;
+```
+
+#### По дням (`core.daily_candles`)
+
+```sql
+SELECT *
+FROM core.daily_candles
+WHERE ticker = 'SBER'
+ORDER BY bucket DESC
+LIMIT 30;
+```
+
+#### По неделям (`core.weekly_candles`)
+
+```sql
+SELECT *
+FROM core.weekly_candles
+WHERE ticker = 'SBER'
+ORDER BY bucket DESC
+LIMIT 12;
+```
+
+### Шаг 5. Если агрегаты не обновились сразу
+
+Можно принудительно обновить их (например, после большого догруза):
+
+```sql
+CALL refresh_continuous_aggregate('core.hourly_candles', NULL, NULL);
+CALL refresh_continuous_aggregate('core.daily_candles', NULL, NULL);
+CALL refresh_continuous_aggregate('core.weekly_candles', NULL, NULL);
+```
