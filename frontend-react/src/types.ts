@@ -13,10 +13,13 @@ export interface DailyMetricPoint {
 }
 
 export interface DashboardFilters {
-  tickers: string[];
-  range: TimeRange;
-  resolution: TimeResolution;
-  metricType: MetricType;
+  mainTickers: string[];
+  mainRange: TimeRange;
+  mainResolution: TimeResolution;
+  mainMetricType: MetricType;
+  candlestickTicker: string;
+  candlestickRange: TimeRange;
+  candlestickResolution: TimeResolution;
 }
 
 export interface KpiCardData {

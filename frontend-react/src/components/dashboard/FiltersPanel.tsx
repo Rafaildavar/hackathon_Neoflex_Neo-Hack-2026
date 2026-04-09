@@ -25,31 +25,36 @@ const RESOLUTION_OPTIONS: Array<{ label: string; value: TimeResolution }> = [
 ];
 
 function FiltersPanel({ availableTickers, value, onChange }: FiltersPanelProps) {
-  const toggleTicker = (ticker: string) => {
-    const exists = value.tickers.includes(ticker);
+  const toggleMainTicker = (ticker: string) => {
+    const exists = value.mainTickers.includes(ticker);
     const nextTickers = exists
-      ? value.tickers.filter((item) => item !== ticker)
-      : [...value.tickers, ticker];
+      ? value.mainTickers.filter((item) => item !== ticker)
+      : [...value.mainTickers, ticker];
 
     onChange({
       ...value,
-      tickers: nextTickers.length > 0 ? nextTickers : [ticker]
+      mainTickers: nextTickers.length > 0 ? nextTickers : [ticker]
     });
   };
+
+  const defaultMainTickers = availableTickers.slice(0, 3);
 
   return (
     <section className="glass-panel reveal" style={{ animationDelay: "90ms" }}>
       <div className="panel-header">
-        <h2 className="panel-title">Фильтры</h2>
+        <h2 className="panel-title">Настройки графиков</h2>
         <button
           type="button"
           className="ghost-button"
           onClick={() =>
             onChange({
-              tickers: availableTickers.slice(0, 3),
-              range: "30d",
-              resolution: "day",
-              metricType: "price"
+              mainTickers: defaultMainTickers,
+              mainRange: "30d",
+              mainResolution: "day",
+              mainMetricType: "price",
+              candlestickTicker: availableTickers[0] ?? "SBER",
+              candlestickRange: "30d",
+              candlestickResolution: "day"
             })
           }
         >
@@ -58,50 +63,62 @@ function FiltersPanel({ availableTickers, value, onChange }: FiltersPanelProps) 
       </div>
 
       <div className="filters-grid">
-        <div>
+        <div className="filters-group">
+          <p className="filters-group-title">Основной график</p>
+
           <p className="filters-label">Отслеживаемые тикеры</p>
           <div className="chips-wrap">
             {availableTickers.map((ticker) => {
-              const selected = value.tickers.includes(ticker);
+              const selected = value.mainTickers.includes(ticker);
               return (
                 <button
                   key={ticker}
                   type="button"
                   className={`chip ${selected ? "selected" : ""}`}
-                  onClick={() => toggleTicker(ticker)}
+                  onClick={() => toggleMainTicker(ticker)}
                 >
                   {ticker}
                 </button>
               );
             })}
           </div>
-        </div>
 
-        <div>
-          <p className="filters-label">Период</p>
-          <div className="segmented">
-            {RANGE_OPTIONS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                className={`segment ${value.range === option.value ? "selected" : ""}`}
-                onClick={() => onChange({ ...value, range: option.value })}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div>
           <p className="filters-label">Тип метрики</p>
           <div className="segmented">
             {METRIC_OPTIONS.map((option) => (
               <button
                 key={option.value}
                 type="button"
-                className={`segment ${value.metricType === option.value ? "selected" : ""}`}
-                onClick={() => onChange({ ...value, metricType: option.value })}
+                className={`segment ${value.mainMetricType === option.value ? "selected" : ""}`}
+                onClick={() => onChange({ ...value, mainMetricType: option.value })}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+
+          <p className="filters-label">Период</p>
+          <div className="segmented">
+            {RANGE_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={`segment ${value.mainRange === option.value ? "selected" : ""}`}
+                onClick={() => onChange({ ...value, mainRange: option.value })}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+
+          <p className="filters-label">Детализация</p>
+          <div className="segmented">
+            {RESOLUTION_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={`segment ${value.mainResolution === option.value ? "selected" : ""}`}
+                onClick={() => onChange({ ...value, mainResolution: option.value })}
               >
                 {option.label}
               </button>
@@ -109,15 +126,44 @@ function FiltersPanel({ availableTickers, value, onChange }: FiltersPanelProps) 
           </div>
         </div>
 
-        <div>
+        <div className="filters-group">
+          <p className="filters-group-title">Свечной график</p>
+
+          <p className="filters-label">Тикер</p>
+          <select
+            className="field-input"
+            value={value.candlestickTicker}
+            onChange={(event) => onChange({ ...value, candlestickTicker: event.target.value })}
+          >
+            {availableTickers.map((ticker) => (
+              <option key={ticker} value={ticker}>
+                {ticker}
+              </option>
+            ))}
+          </select>
+
+          <p className="filters-label">Период</p>
+          <div className="segmented">
+            {RANGE_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={`segment ${value.candlestickRange === option.value ? "selected" : ""}`}
+                onClick={() => onChange({ ...value, candlestickRange: option.value })}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+
           <p className="filters-label">Детализация</p>
           <div className="segmented">
             {RESOLUTION_OPTIONS.map((option) => (
               <button
                 key={option.value}
                 type="button"
-                className={`segment ${value.resolution === option.value ? "selected" : ""}`}
-                onClick={() => onChange({ ...value, resolution: option.value })}
+                className={`segment ${value.candlestickResolution === option.value ? "selected" : ""}`}
+                onClick={() => onChange({ ...value, candlestickResolution: option.value })}
               >
                 {option.label}
               </button>

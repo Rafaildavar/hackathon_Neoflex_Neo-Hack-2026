@@ -10,6 +10,7 @@ import {
   LeaderRow,
   PriceVolumePoint,
   SeverityLevel,
+  TimeRange,
   TimeResolution,
   VolatilityPoint
 } from "../types";
@@ -17,7 +18,15 @@ import {
 const ALERT_STORAGE_KEY = "neo_invest_alert_preferences";
 const MOEX_DELAY_MINUTES = 15;
 
-function rangeToDays(range: DashboardFilters["range"]): number {
+interface ResolvedTickerPoint {
+  timestamp: string;
+  label: string;
+  close: number;
+  volume: number;
+  volatility: number;
+}
+
+function rangeToDays(range: TimeRange): number {
   switch (range) {
     case "7d":
       return 7;
@@ -108,6 +117,60 @@ function roundForTicker(value: number, ticker: string): number {
   return Math.round(value * factor) / factor;
 }
 
+function buildDailyResolvedPoints(series: DailyMetricPoint[]): ResolvedTickerPoint[] {
+  return series.map((point) => {
+    const date = new Date(`${point.date}T00:00:00`);
+    return {
+      timestamp: date.toISOString(),
+      label: formatDateLabel(point.date),
+      close: point.close,
+      volume: point.volume,
+      volatility: point.volatility
+    };
+  });
+}
+
+function buildIntradayResolvedPoints(
+  series: DailyMetricPoint[],
+  ticker: string,
+  resolution: Exclude<TimeResolution, "day">,
+  days: number
+): ResolvedTickerPoint[] {
+  const candles = buildIntradayCandles(series, ticker, resolution, days);
+  return candles.map((candle) => ({
+    timestamp: candle.timestamp,
+    label: candle.label,
+    close: candle.close,
+    volume: candle.volume,
+    volatility: Math.abs(((candle.high - candle.low) / Math.max(candle.open, 0.000001)) * 100)
+  }));
+}
+
+function createResolvedTickerSeriesMap(
+  tickerMap: Record<string, DailyMetricPoint[]>,
+  range: TimeRange,
+  resolution: TimeResolution
+): Record<string, ResolvedTickerPoint[]> {
+  const days = rangeToDays(range);
+  const resolved: Record<string, ResolvedTickerPoint[]> = {};
+
+  Object.entries(tickerMap).forEach(([ticker, series]) => {
+    if (resolution === "day") {
+      resolved[ticker] = buildDailyResolvedPoints(series.slice(-days));
+      return;
+    }
+
+    resolved[ticker] = buildIntradayResolvedPoints(
+      series.slice(-Math.min(days, 30)),
+      ticker,
+      resolution,
+      days
+    );
+  });
+
+  return resolved;
+}
+
 function createKpis(tickerMap: Record<string, DailyMetricPoint[]>): KpiCardData[] {
   const latestRows = Object.values(tickerMap).map((rows) => rows[rows.length - 1]).filter(Boolean);
   const previousRows = Object.values(tickerMap).map((rows) => rows[rows.length - 2]).filter(Boolean);
@@ -180,7 +243,7 @@ function createLeaders(tickerMap: Record<string, DailyMetricPoint[]>): {
   return { gainers, losers };
 }
 
-function createPriceVolumeSeries(tickerMap: Record<string, DailyMetricPoint[]>): PriceVolumePoint[] {
+function createPriceVolumeSeries(tickerMap: Record<string, ResolvedTickerPoint[]>): PriceVolumePoint[] {
   const firstTicker = Object.keys(tickerMap)[0];
   if (!firstTicker || tickerMap[firstTicker].length === 0) {
     return [];
@@ -192,12 +255,15 @@ function createPriceVolumeSeries(tickerMap: Record<string, DailyMetricPoint[]>):
 
   for (let index = 0; index < length; index += 1) {
     const row: PriceVolumePoint = {
-      date: formatDateLabel(tickerMap[firstTicker][index].date),
+      date: tickerMap[firstTicker][index].label,
       totalVolume: 0
     };
 
     tickers.forEach((ticker) => {
       const point = tickerMap[ticker][index];
+      if (!point) {
+        return;
+      }
       row[ticker] = point.close;
       row.totalVolume += point.volume;
     });
@@ -208,7 +274,7 @@ function createPriceVolumeSeries(tickerMap: Record<string, DailyMetricPoint[]>):
   return output;
 }
 
-function createVolatilitySeries(tickerMap: Record<string, DailyMetricPoint[]>): VolatilityPoint[] {
+function createVolatilitySeries(tickerMap: Record<string, ResolvedTickerPoint[]>): VolatilityPoint[] {
   const firstTicker = Object.keys(tickerMap)[0];
   if (!firstTicker || tickerMap[firstTicker].length === 0) {
     return [];
@@ -220,11 +286,14 @@ function createVolatilitySeries(tickerMap: Record<string, DailyMetricPoint[]>): 
 
   for (let index = 0; index < length; index += 1) {
     const row: VolatilityPoint = {
-      date: formatDateLabel(tickerMap[firstTicker][index].date)
+      date: tickerMap[firstTicker][index].label
     };
 
     tickers.forEach((ticker) => {
       const point = tickerMap[ticker][index];
+      if (!point) {
+        return;
+      }
       row[ticker] = point.volatility;
     });
 
@@ -401,11 +470,11 @@ function createCandlestickSeries(
   filters: DashboardFilters
 ): { ticker: string; series: CandlestickPoint[] } {
   const fallbackTicker = Object.keys(tickerMap)[0] ?? MONITORED_TICKERS[0];
-  const ticker = filters.tickers[0] ?? fallbackTicker;
+  const ticker = filters.candlestickTicker || filters.mainTickers[0] || fallbackTicker;
   const series = tickerMap[ticker] ?? [];
-  const rangeDays = rangeToDays(filters.range);
+  const rangeDays = rangeToDays(filters.candlestickRange);
 
-  if (filters.resolution === "day") {
+  if (filters.candlestickResolution === "day") {
     return {
       ticker,
       series: buildDailyCandles(series.slice(-rangeDays), ticker)
@@ -417,7 +486,7 @@ function createCandlestickSeries(
     series: buildIntradayCandles(
       series.slice(-Math.min(rangeDays, 30)),
       ticker,
-      filters.resolution,
+      filters.candlestickResolution,
       rangeDays
     )
   };
@@ -459,27 +528,44 @@ export function saveAlertPreferences(preferences: AlertPreferences): void {
 export async function fetchDashboardSnapshot(filters: DashboardFilters): Promise<DashboardSnapshot> {
   await new Promise((resolve) => setTimeout(resolve, 180));
 
-  const requestedTickers = filters.tickers.length > 0 ? filters.tickers : MONITORED_TICKERS;
-  const days = rangeToDays(filters.range);
+  const baseTickers = filters.mainTickers.length > 0 ? filters.mainTickers : MONITORED_TICKERS;
+  const requestedTickers = Array.from(
+    new Set([
+      ...baseTickers,
+      filters.candlestickTicker || baseTickers[0] || MONITORED_TICKERS[0]
+    ])
+  );
+  const days = Math.max(rangeToDays(filters.mainRange), rangeToDays(filters.candlestickRange));
   const tickerMap: Record<string, DailyMetricPoint[]> = {};
+  const mainTickerMap: Record<string, DailyMetricPoint[]> = {};
 
   requestedTickers.forEach((ticker) => {
     const fullSeries = MOCK_SERIES[ticker] ?? [];
     tickerMap[ticker] = fullSeries.slice(-days);
   });
 
+  baseTickers.forEach((ticker) => {
+    const series = tickerMap[ticker] ?? [];
+    mainTickerMap[ticker] = series.slice(-rangeToDays(filters.mainRange));
+  });
+
+  const resolvedTickerMap = createResolvedTickerSeriesMap(
+    mainTickerMap,
+    filters.mainRange,
+    filters.mainResolution
+  );
   const candlestickData = createCandlestickSeries(tickerMap, filters);
 
   return {
     generatedAt: new Date().toISOString(),
     delayedByMinutes: MOEX_DELAY_MINUTES,
     availableTickers: MONITORED_TICKERS,
-    kpis: createKpis(tickerMap),
-    priceVolumeSeries: createPriceVolumeSeries(tickerMap),
-    volatilitySeries: createVolatilitySeries(tickerMap),
+    kpis: createKpis(mainTickerMap),
+    priceVolumeSeries: createPriceVolumeSeries(resolvedTickerMap),
+    volatilitySeries: createVolatilitySeries(resolvedTickerMap),
     candlestickTicker: candlestickData.ticker,
     candlestickSeries: candlestickData.series,
-    leaders: createLeaders(tickerMap),
-    anomalies: createAnomalies(tickerMap)
+    leaders: createLeaders(mainTickerMap),
+    anomalies: createAnomalies(mainTickerMap)
   };
 }
