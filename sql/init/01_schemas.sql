@@ -110,6 +110,22 @@ CREATE TABLE IF NOT EXISTS mart.daily_metrics (
     PRIMARY KEY (trade_date, ticker)
 );
 
+CREATE TABLE IF NOT EXISTS mart.lstm_daily_predictions (
+    ticker TEXT PRIMARY KEY,
+    source_bucket TIMESTAMPTZ NOT NULL,
+    predicted_bucket TIMESTAMPTZ NOT NULL,
+    predicted_open NUMERIC NOT NULL,
+    predicted_high NUMERIC NOT NULL,
+    predicted_low NUMERIC NOT NULL,
+    predicted_close NUMERIC NOT NULL,
+    model_path TEXT NOT NULL,
+    model_version TEXT NOT NULL DEFAULT 'lstm_v1',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_lstm_daily_predictions_bucket
+    ON mart.lstm_daily_predictions (predicted_bucket DESC);
+
 CREATE TABLE IF NOT EXISTS mart.anomaly_events (
     event_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     detected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -139,4 +155,3 @@ CREATE INDEX IF NOT EXISTS idx_auth_users_email
 CREATE UNIQUE INDEX IF NOT EXISTS uq_auth_users_telegram_chat_id
     ON auth.users (telegram_chat_id)
     WHERE telegram_chat_id IS NOT NULL;
-

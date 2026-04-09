@@ -106,6 +106,7 @@ SELECT COUNT(*) FROM core.minute_candles;
   - Сервисные таблицы:
     - `mart.daily_metrics`
     - `mart.anomaly_events`
+    - `mart.lstm_daily_predictions`
 
 - `sql/init/02_continuous_aggregates.sql`
   - Continuous aggregates:
@@ -222,6 +223,53 @@ python -m analyze.multiplication --interval daily
 
 ```powershell
 python -m analyze.multiplication --interval daily --ticker SBER
+```
+
+### 5. LSTM-прогноз на 1 свечу вперед (daily)
+
+Новые файлы:
+- `analyze/lstm_forecast.py` — обучение/инференс и upsert в БД.
+- `script/init_lstm_predictions.py` — создание таблицы прогнозов.
+- `script/train_lstm_daily_models.py` — обучение моделей по тикерам + запись прогноза.
+- `script/predict_lstm_daily.py` — ежедневный инференс на уже обученных моделях.
+
+Новая таблица:
+- `mart.lstm_daily_predictions` — всегда **1 актуальная запись на тикер** (через `ON CONFLICT (ticker) DO UPDATE`).
+
+Инициализация таблицы:
+
+```powershell
+python .\script\init_lstm_predictions.py
+```
+
+Обучение по всем тикерам (daily frame из `core.daily_candles`):
+
+```powershell
+python .\script\train_lstm_daily_models.py --timesteps 60 --epochs 200 --batch-size 32
+```
+
+Обучение только по одному тикеру:
+
+```powershell
+python .\script\train_lstm_daily_models.py --ticker SBER --timesteps 60
+```
+
+Ежедневное обновление прогнозов без переобучения:
+
+```powershell
+python .\script\predict_lstm_daily.py
+```
+
+Где лежат веса и метаданные:
+- `models/lstm_daily/<TICKER>.weights.h5`
+- `models/lstm_daily/<TICKER>.meta.json`
+
+Проверка в БД:
+
+```sql
+SELECT *
+FROM mart.lstm_daily_predictions
+ORDER BY ticker;
 ```
 
 ## Полезные команды Docker
