@@ -22,9 +22,10 @@
 │  └─ init/
 │     ├─ 01_schemas.sql
 │     └─ 02_continuous_aggregates.sql
-├─ scripts/
+├─ script/
 │  ├─ load_raw_moex_candles.py
-│  └─ transform_raw_to_candles.py
+│  ├─ transform_raw_to_candles.py
+│  └─ calculate_daily_metrics.py
 └─ airflow/
    ├─ dags/
    ├─ logs/
@@ -116,7 +117,7 @@ SELECT COUNT(*) FROM core.minute_candles;
 
 ## Запуск ETL-скриптов
 
-Ниже команды для двух функций:
+Ниже команды для трех функций:
 1) загрузка сырых payload в `stg.raw_moex_data`
 2) преобразование payload в `core.minute_candles`
 
@@ -125,7 +126,7 @@ SELECT COUNT(*) FROM core.minute_candles;
 #### Windows (PowerShell)
 ```powershell
 Set-Location "D:\hackathon_Neoflex_Neo-Hack-2026"
-python -u .\scripts\load_raw_moex_candles.py --from-date 2026-03-08 --till-date 2026-04-08
+python -u .\script\load_raw_moex_candles.py --from-date 2026-03-08 --till-date 2026-04-08
 ```
 
 #### macOS (Terminal)
@@ -146,7 +147,7 @@ python3 -u ./script/load_raw_moex_candles.py --from-date 2026-03-08 --till-date 
 Windows (PowerShell):
 ```powershell
 Set-Location "D:\hackathon_Neoflex_Neo-Hack-2026"
-python -u .\scripts\transform_raw_to_candles.py
+python -u .\script\transform_raw_to_candles.py
 ```
 
 macOS (Terminal):
@@ -159,13 +160,41 @@ python3 -u ./script/transform_raw_to_candles.py
 
 Windows (PowerShell):
 ```powershell
-python -u .\scripts\transform_raw_to_candles.py --ticker SBER
+python -u .\script\transform_raw_to_candles.py --ticker SBER
 ```
 
 macOS (Terminal):
 ```bash
 python3 -u ./script/transform_raw_to_candles.py --ticker SBER
 ```
+
+### 3. Загрузка данных из БД в pandas DataFrame
+
+Модуль `analyze/load_data_from_db.py` предоставляет функции для загрузки данных в DataFrame в собственном коде анализа:
+
+```python
+from analyze.load_data_from_db import load_candles, load_daily_metrics
+
+# Загрузить минутные свечи для SBER
+df_minute = load_candles(interval="minute", ticker="SBER")
+
+# Загрузить часовые свечи с фильтром по времени
+df_hourly = load_candles(
+    interval="hourly",
+    ticker="GAZP",
+    from_ts="2026-04-01",
+    to_ts="2026-04-08"
+)
+
+# Загрузить дневные метрики
+df_daily = load_daily_metrics(ticker="LKOH", from_date="2026-04-01")
+```
+
+Доступные функции:
+- `load_candles(interval, ticker, from_ts, to_ts)` - свечи (minute, hourly, daily, weekly)
+- `load_daily_metrics(ticker, from_date, to_date)` - дневные метрики
+- `load_dashboard_metrics(ticker, interval_type, from_ts, to_ts)` - с техническими индикаторами
+- `load_raw_payloads(ticker, from_ts, to_ts)` - сырые MOEX payload
 
 ## Полезные команды Docker
 
