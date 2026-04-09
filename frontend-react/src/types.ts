@@ -1,5 +1,6 @@
 export type TimeRange = "7d" | "30d" | "90d";
 export type MetricType = "price" | "volume" | "volatility";
+export type TimeResolution = "minute" | "hour" | "day";
 export type SeverityLevel = "medium" | "high";
 
 export interface DailyMetricPoint {
@@ -14,6 +15,7 @@ export interface DailyMetricPoint {
 export interface DashboardFilters {
   tickers: string[];
   range: TimeRange;
+  resolution: TimeResolution;
   metricType: MetricType;
 }
 
@@ -63,8 +65,20 @@ export interface DashboardSnapshot {
   kpis: KpiCardData[];
   priceVolumeSeries: PriceVolumePoint[];
   volatilitySeries: VolatilityPoint[];
+  candlestickTicker: string;
+  candlestickSeries: CandlestickPoint[];
   leaders: LeadersData;
   anomalies: AnomalyRow[];
+}
+
+export interface CandlestickPoint {
+  timestamp: string;
+  label: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
 }
 
 export interface AlertPreferences {

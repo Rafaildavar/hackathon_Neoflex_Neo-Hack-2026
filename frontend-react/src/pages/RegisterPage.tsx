@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+﻿import { useNavigate } from "react-router-dom";
 import EmailRegistrationForm from "../components/auth/EmailRegistrationForm";
 
 function RegisterPage() {
@@ -16,11 +16,11 @@ function RegisterPage() {
         <ul className="hero-list">
           <li>Интерактивные графики цен, объемов и волатильности</li>
           <li>Лидеры роста и падения за выбранный период</li>
-          <li>Регистрация по email для аналитиков</li>
+          <li>Регистрация и вход по email для аналитиков</li>
         </ul>
       </section>
 
-      <EmailRegistrationForm onRegistered={() => navigate("/dashboard")} />
+      <EmailRegistrationForm onAuthorized={() => navigate("/dashboard")} />
     </main>
   );
 }

@@ -1,10 +1,18 @@
+import { useEffect, useState } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import DashboardPage from "./pages/DashboardPage";
 import RegisterPage from "./pages/RegisterPage";
-import { getCurrentUser } from "./services/authService";
+import { getCurrentUser, subscribeAuthChanges } from "./services/authService";
 
 function App() {
-  const currentUser = getCurrentUser();
+  const [currentUser, setCurrentUser] = useState(() => getCurrentUser());
+
+  useEffect(() => {
+    setCurrentUser(getCurrentUser());
+    return subscribeAuthChanges(() => {
+      setCurrentUser(getCurrentUser());
+    });
+  }, []);
 
   return (
     <Routes>

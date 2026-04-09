@@ -1,4 +1,4 @@
-import { DashboardFilters, MetricType, TimeRange } from "../../types";
+﻿import { DashboardFilters, MetricType, TimeRange, TimeResolution } from "../../types";
 
 interface FiltersPanelProps {
   availableTickers: string[];
@@ -16,6 +16,12 @@ const METRIC_OPTIONS: Array<{ label: string; value: MetricType }> = [
   { label: "Цена", value: "price" },
   { label: "Объем", value: "volume" },
   { label: "Волатильность", value: "volatility" }
+];
+
+const RESOLUTION_OPTIONS: Array<{ label: string; value: TimeResolution }> = [
+  { label: "Минуты", value: "minute" },
+  { label: "Часы", value: "hour" },
+  { label: "Дни", value: "day" }
 ];
 
 function FiltersPanel({ availableTickers, value, onChange }: FiltersPanelProps) {
@@ -42,6 +48,7 @@ function FiltersPanel({ availableTickers, value, onChange }: FiltersPanelProps) 
             onChange({
               tickers: availableTickers.slice(0, 3),
               range: "30d",
+              resolution: "day",
               metricType: "price"
             })
           }
@@ -95,6 +102,22 @@ function FiltersPanel({ availableTickers, value, onChange }: FiltersPanelProps) 
                 type="button"
                 className={`segment ${value.metricType === option.value ? "selected" : ""}`}
                 onClick={() => onChange({ ...value, metricType: option.value })}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <p className="filters-label">Детализация</p>
+          <div className="segmented">
+            {RESOLUTION_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={`segment ${value.resolution === option.value ? "selected" : ""}`}
+                onClick={() => onChange({ ...value, resolution: option.value })}
               >
                 {option.label}
               </button>
