@@ -3,9 +3,13 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-import psycopg2
 from flask import Flask, request
 from flask_cors import CORS
+
+try:
+    from db_connection import connect_db
+except ImportError:
+    from script.db_connection import connect_db
 
 try:
     from dotenv import load_dotenv
@@ -19,14 +23,8 @@ if load_dotenv is not None:
         load_dotenv(env_path)
 
 
-def db_conn() -> psycopg2.extensions.connection:
-    return psycopg2.connect(
-        host=os.getenv("POSTGRES_HOST", "localhost"),
-        port=int(os.getenv("POSTGRES_PORT", "5432")),
-        dbname=os.getenv("POSTGRES_DB", "moex_dwh"),
-        user=os.getenv("POSTGRES_USER", "moex"),
-        password=os.getenv("POSTGRES_PASSWORD", "moex_pass"),
-    )
+def db_conn():
+    return connect_db()
 
 
 def normalize_email(email: str) -> str:
@@ -53,7 +51,10 @@ def register() -> tuple[dict[str, str], int]:
     if len(password) < 8:
         return {"error": "Пароль должен быть не менее 8 символов."}, 400
 
-    conn = db_conn()
+    try:
+        conn = db_conn()
+    except RuntimeError as exc:
+        return {"error": str(exc)}, 503
     try:
         with conn:
             with conn.cursor() as cur:
@@ -83,7 +84,10 @@ def login() -> tuple[dict[str, str], int]:
     if not email or not password:
         return {"error": "Нужны email и пароль."}, 400
 
-    conn = db_conn()
+    try:
+        conn = db_conn()
+    except RuntimeError as exc:
+        return {"error": str(exc)}, 503
     try:
         with conn.cursor() as cur:
             cur.execute(

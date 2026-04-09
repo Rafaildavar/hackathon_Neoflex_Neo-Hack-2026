@@ -3,7 +3,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-import psycopg2
+try:
+    from db_connection import connect_db
+except ImportError:
+    from script.db_connection import connect_db
 
 try:
     from dotenv import load_dotenv
@@ -38,13 +41,7 @@ CREATE INDEX IF NOT EXISTS idx_auth_users_email
 
 
 def main() -> int:
-    conn = psycopg2.connect(
-        host=os.getenv("POSTGRES_HOST", "localhost"),
-        port=int(os.getenv("POSTGRES_PORT", "5432")),
-        dbname=os.getenv("POSTGRES_DB", "moex_dwh"),
-        user=os.getenv("POSTGRES_USER", "moex"),
-        password=os.getenv("POSTGRES_PASSWORD", "moex_pass"),
-    )
+    conn = connect_db()
     try:
         with conn:
             with conn.cursor() as cur:

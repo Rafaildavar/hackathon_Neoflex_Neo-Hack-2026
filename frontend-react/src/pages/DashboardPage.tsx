@@ -6,6 +6,7 @@ import CandlestickChart from "../components/dashboard/CandlestickChart";
 import FiltersPanel from "../components/dashboard/FiltersPanel";
 import KpiCards from "../components/dashboard/KpiCards";
 import LeadersTable from "../components/dashboard/LeadersTable";
+import LstmPredictionChart from "../components/dashboard/LstmPredictionChart";
 import PriceAndVolumeChart from "../components/dashboard/PriceAndVolumeChart";
 import VolatilityChart from "../components/dashboard/VolatilityChart";
 import { logoutUser } from "../services/authService";
@@ -128,6 +129,10 @@ function DashboardPage({ userEmail }: DashboardPageProps) {
               ticker={snapshot.candlestickTicker}
               resolution={filters.candlestickResolution}
               data={snapshot.candlestickSeries}
+            />
+            <LstmPredictionChart
+              history={snapshot.lstmHistorySeries}
+              prediction={snapshot.lstmPrediction}
             />
 
             <LeadersTable data={snapshot.leaders} />

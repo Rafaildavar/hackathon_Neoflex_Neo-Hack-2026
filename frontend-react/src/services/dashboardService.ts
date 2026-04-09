@@ -7,6 +7,8 @@ import {
   DashboardSnapshot,
   DailyMetricPoint,
   KpiCardData,
+  LstmForecastPoint,
+  LstmHistoryPoint,
   LeaderRow,
   PriceVolumePoint,
   SeverityLevel,
@@ -79,6 +81,12 @@ function formatDateLabel(isoDate: string): string {
     month: "short",
     day: "2-digit"
   });
+}
+
+function plusOneDayIso(isoDate: string): string {
+  const next = new Date(`${isoDate}T00:00:00`);
+  next.setDate(next.getDate() + 1);
+  return next.toISOString().slice(0, 10);
 }
 
 function formatCandleLabel(date: Date, resolution: TimeResolution): string {
@@ -492,6 +500,63 @@ function createCandlestickSeries(
   };
 }
 
+function createLstmPredictionData(
+  tickerMap: Record<string, DailyMetricPoint[]>,
+  requestedTickers: string[]
+): { historySeries: LstmHistoryPoint[]; forecast: LstmForecastPoint | null } {
+  const ticker = requestedTickers[0];
+  if (!ticker) {
+    return { historySeries: [], forecast: null };
+  }
+
+  const series = tickerMap[ticker] ?? [];
+  if (series.length === 0) {
+    return { historySeries: [], forecast: null };
+  }
+
+  const source = series[series.length - 1];
+  const previous = series.length > 1 ? series[series.length - 2] : source;
+  const drift =
+    previous.close > 0 ? (source.close - previous.close) / previous.close : source.priceChangePct / 100;
+
+  const openRaw = source.close * (1 + drift * 0.25);
+  const closeRaw = source.close * (1 + drift * 0.85);
+  const wick = Math.max(
+    Math.abs(closeRaw - openRaw) * 0.7,
+    source.close * (source.volatility / 100) * 0.42,
+    source.close * 0.002
+  );
+
+  const highRaw = Math.max(openRaw, closeRaw) + wick;
+  const lowRaw = Math.max(0.00001, Math.min(openRaw, closeRaw) - wick);
+  const predictedBucket = plusOneDayIso(source.date);
+
+  const forecast: LstmForecastPoint = {
+    ticker,
+    sourceBucket: source.date,
+    predictedBucket,
+    predictedOpen: roundForTicker(openRaw, ticker),
+    predictedHigh: roundForTicker(highRaw, ticker),
+    predictedLow: roundForTicker(lowRaw, ticker),
+    predictedClose: roundForTicker(closeRaw, ticker),
+    modelVersion: "lstm_v1"
+  };
+
+  const historySeries: LstmHistoryPoint[] = series
+    .slice(-Math.min(series.length, 20))
+    .map((point) => ({
+      date: formatDateLabel(point.date),
+      close: point.close
+    }));
+
+  historySeries.push({
+    date: formatDateLabel(predictedBucket),
+    predictedClose: forecast.predictedClose
+  });
+
+  return { historySeries, forecast };
+}
+
 export function getStoredAlertPreferences(defaultEmail: string): AlertPreferences {
   const raw = localStorage.getItem(ALERT_STORAGE_KEY);
   if (!raw) {
@@ -555,6 +620,7 @@ export async function fetchDashboardSnapshot(filters: DashboardFilters): Promise
     filters.mainResolution
   );
   const candlestickData = createCandlestickSeries(tickerMap, filters);
+  const lstmPredictionData = createLstmPredictionData(tickerMap, requestedTickers);
 
   return {
     generatedAt: new Date().toISOString(),
@@ -565,6 +631,8 @@ export async function fetchDashboardSnapshot(filters: DashboardFilters): Promise
     volatilitySeries: createVolatilitySeries(resolvedTickerMap),
     candlestickTicker: candlestickData.ticker,
     candlestickSeries: candlestickData.series,
+    lstmHistorySeries: lstmPredictionData.historySeries,
+    lstmPrediction: lstmPredictionData.forecast,
     leaders: createLeaders(mainTickerMap),
     anomalies: createAnomalies(mainTickerMap)
   };

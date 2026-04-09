@@ -9,7 +9,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-moex_pass}
       TZ: ${TZ:-UTC}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${POSTGRES_PORT:-15432}:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
       - ./sql/init:/docker-entrypoint-initdb.d:ro

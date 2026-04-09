@@ -61,6 +61,23 @@ export interface VolatilityPoint {
   [key: string]: string | number;
 }
 
+export interface LstmForecastPoint {
+  ticker: string;
+  sourceBucket: string;
+  predictedBucket: string;
+  predictedOpen: number;
+  predictedHigh: number;
+  predictedLow: number;
+  predictedClose: number;
+  modelVersion: string;
+}
+
+export interface LstmHistoryPoint {
+  date: string;
+  close?: number;
+  predictedClose?: number;
+}
+
 export interface DashboardSnapshot {
   generatedAt: string;
   delayedByMinutes: number;
@@ -70,6 +87,8 @@ export interface DashboardSnapshot {
   volatilitySeries: VolatilityPoint[];
   candlestickTicker: string;
   candlestickSeries: CandlestickPoint[];
+  lstmHistorySeries: LstmHistoryPoint[];
+  lstmPrediction: LstmForecastPoint | null;
   leaders: LeadersData;
   anomalies: AnomalyRow[];
 }

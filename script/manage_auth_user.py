@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import argparse
 import getpass
-import os
 from pathlib import Path
 
 import psycopg2
+
+try:
+    from db_connection import connect_db
+except ImportError:
+    from script.db_connection import connect_db
 
 try:
     from dotenv import load_dotenv
@@ -20,13 +24,7 @@ if load_dotenv is not None:
 
 
 def db_conn() -> psycopg2.extensions.connection:
-    return psycopg2.connect(
-        host=os.getenv("POSTGRES_HOST", "localhost"),
-        port=int(os.getenv("POSTGRES_PORT", "5432")),
-        dbname=os.getenv("POSTGRES_DB", "moex_dwh"),
-        user=os.getenv("POSTGRES_USER", "moex"),
-        password=os.getenv("POSTGRES_PASSWORD", "moex_pass"),
-    )
+    return connect_db()
 
 
 def normalize_email(email: str) -> str:

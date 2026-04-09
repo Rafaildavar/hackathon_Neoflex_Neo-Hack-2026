@@ -439,6 +439,15 @@ body {
   font-size: 0.85rem;
 }
 
+.prediction-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.74rem;
+  margin-top: 0.58rem;
+  color: #d3e4f6;
+  font-size: 0.85rem;
+}
+
 .tables-dual {
   display: grid;
   grid-template-columns: 1fr 1fr;
