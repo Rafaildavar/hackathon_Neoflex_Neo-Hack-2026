@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -38,6 +37,8 @@ class TransformStats:
     raw_payloads_processed: int = 0
     candles_inserted: int = 0
     errors: int = 0
+    min_bucket: datetime | None = None
+    max_bucket: datetime | None = None
 
 
 def parse_args() -> argparse.Namespace:
@@ -74,6 +75,23 @@ def parse_args() -> argparse.Namespace:
         "--ticker",
         default=None,
         help="Process only specific ticker (optional)",
+    )
+    parser.add_argument(
+        "--from-date",
+        dest="from_date",
+        default=None,
+        help="Filter payloads by request_params.from >= YYYY-MM-DD",
+    )
+    parser.add_argument(
+        "--till-date",
+        dest="till_date",
+        default=None,
+        help="Filter payloads by request_params.till <= YYYY-MM-DD",
+    )
+    parser.add_argument(
+        "--refresh-aggregates",
+        action="store_true",
+        help="Force refresh core.hourly_candles and core.daily_candles for loaded range",
     )
     return parser.parse_args()
 
@@ -184,6 +202,40 @@ def insert_candles(
     return inserted_count
 
 
+def refresh_aggregates(
+    conn: psycopg2.extensions.connection,
+    start_ts: datetime,
+    end_ts: datetime,
+) -> None:
+    hour_start = start_ts.replace(minute=0, second=0, microsecond=0)
+    hour_end = end_ts.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+    day_start = start_ts.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end = day_start + timedelta(days=2)
+    week_start = (day_start - timedelta(days=day_start.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    week_end = week_start + timedelta(days=14)
+
+    original_autocommit = conn.autocommit
+    try:
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute(
+                "CALL refresh_continuous_aggregate('core.hourly_candles', %s, %s)",
+                (hour_start, hour_end),
+            )
+            cur.execute(
+                "CALL refresh_continuous_aggregate('core.daily_candles', %s, %s)",
+                (day_start, day_end),
+            )
+            cur.execute(
+                "CALL refresh_continuous_aggregate('core.weekly_candles', %s, %s)",
+                (week_start, week_end),
+            )
+    finally:
+        conn.autocommit = original_autocommit
+
+
 def main() -> int:
     args = parse_args()
 
@@ -206,17 +258,31 @@ def main() -> int:
     )
 
     try:
-        # Get list of unprocessed payloads
+        # Get list of payloads to process
         with conn.cursor() as cur:
+            where_parts: list[str] = []
+            query_args: list[Any] = []
+
             if args.ticker:
-                cur.execute(
-                    "SELECT ticker, payload FROM stg.raw_moex_data WHERE ticker = %s ORDER BY ticker",
-                    (args.ticker,),
-                )
-            else:
-                cur.execute(
-                    "SELECT ticker, payload FROM stg.raw_moex_data ORDER BY ticker"
-                )
+                where_parts.append("ticker = %s")
+                query_args.append(args.ticker.upper())
+            if args.from_date:
+                where_parts.append("(request_params->>'from')::date >= %s::date")
+                query_args.append(args.from_date)
+            if args.till_date:
+                where_parts.append("(request_params->>'till')::date <= %s::date")
+                query_args.append(args.till_date)
+
+            where_sql = f" WHERE {' AND '.join(where_parts)}" if where_parts else ""
+            cur.execute(
+                f"""
+                SELECT ticker, payload
+                FROM stg.raw_moex_data
+                {where_sql}
+                ORDER BY ticker, ingested_at
+                """,
+                tuple(query_args),
+            )
 
             rows = cur.fetchall()
 
@@ -231,11 +297,38 @@ def main() -> int:
                 count = insert_candles(conn, ticker, candles)
                 print(f"  Inserted/updated {count} candles")
                 stats.candles_inserted += count
+                buckets = [c["bucket"] for c in candles if c.get("bucket") is not None]
+                if buckets:
+                    payload_min = min(buckets)
+                    payload_max = max(buckets)
+                    stats.min_bucket = (
+                        payload_min
+                        if stats.min_bucket is None
+                        else min(stats.min_bucket, payload_min)
+                    )
+                    stats.max_bucket = (
+                        payload_max
+                        if stats.max_bucket is None
+                        else max(stats.max_bucket, payload_max)
+                    )
             else:
                 print("  ERROR No candles to insert")
                 stats.errors += 1
 
             stats.raw_payloads_processed += 1
+
+        if args.refresh_aggregates and stats.min_bucket and stats.max_bucket:
+            # End is exclusive for refresh window, add one minute to include last candle.
+            refresh_start = stats.min_bucket
+            refresh_end = stats.max_bucket.replace(second=0, microsecond=0)
+            refresh_end = refresh_end + timedelta(minutes=1)
+            print(
+                f"\nRefreshing aggregates for range {refresh_start.isoformat()} .. {refresh_end.isoformat()}"
+            )
+            refresh_aggregates(conn, refresh_start, refresh_end)
+            print(
+                "  OK Refreshed core.hourly_candles, core.daily_candles and core.weekly_candles"
+            )
 
         conn.commit()
     finally:
