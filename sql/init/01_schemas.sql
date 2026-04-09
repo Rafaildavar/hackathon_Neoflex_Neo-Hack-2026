@@ -95,6 +95,7 @@ CREATE TABLE IF NOT EXISTS auth.users (
     user_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     email TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
+    telegram_chat_id TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -104,4 +105,8 @@ CREATE TABLE IF NOT EXISTS auth.users (
 
 CREATE INDEX IF NOT EXISTS idx_auth_users_email
     ON auth.users (email);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_auth_users_telegram_chat_id
+    ON auth.users (telegram_chat_id)
+    WHERE telegram_chat_id IS NOT NULL;
 

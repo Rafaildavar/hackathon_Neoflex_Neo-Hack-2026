@@ -417,6 +417,8 @@ ORDER BY ticker;
 - `moex_minute_incremental_sync` — дозаполнение минутных свечей (каждую минуту).
 - `daily_metrics_dag` — расчет `mart.daily_metrics` (ежедневно в `00:10`).
 - `anomaly_on_new_data_dag` — проверка аномалий при появлении новых данных (`каждые 5 минут`).
+- `anomaly_email_alert_dag` — email-уведомления по новым аномалиям.
+- `anomaly_telegram_alert_dag` — Telegram-уведомления по новым аномалиям.
 
 ### 1) Поднять сервисы
 
@@ -521,8 +523,17 @@ npm run dev -- --host 0.0.0.0 --port 5173
 - `pipeline_orchestration_dag`
 - `moex_minute_incremental_sync`
 - `anomaly_on_new_data_dag`
+- `anomaly_email_alert_dag`
+- `anomaly_telegram_alert_dag`
 - `daily_metrics_dag`
 
+Переменные окружения для Telegram-оповещений (в `.env` и/или окружении Airflow):
+- `TELEGRAM_BOT_TOKEN` — токен Telegram-бота.
+
+Куда отправлять алерты:
+- в `auth.users.telegram_chat_id` хранится chat id пользователя;
+- `anomaly_telegram_alert_dag` отправляет только активным пользователям (`is_active = true`) с непустым `telegram_chat_id`.
+
 Сценарий работы:
-- `pipeline_orchestration_dag` каждую минуту запускает `minute -> anomaly`,
+- `pipeline_orchestration_dag` каждую минуту запускает `minute -> anomaly -> email -> telegram`,
 - `daily_metrics_dag` выполняется раз в день по расписанию.

@@ -30,4 +30,20 @@ with DAG(
         reset_dag_run=True,
     )
 
-    run_minute_sync >> run_anomaly_detection
+    run_anomaly_email_alerts = TriggerDagRunOperator(
+        task_id="run_anomaly_email_alerts",
+        trigger_dag_id="anomaly_email_alert_dag",
+        wait_for_completion=True,
+        poke_interval=20,
+        reset_dag_run=True,
+    )
+
+    run_anomaly_telegram_alerts = TriggerDagRunOperator(
+        task_id="run_anomaly_telegram_alerts",
+        trigger_dag_id="anomaly_telegram_alert_dag",
+        wait_for_completion=True,
+        poke_interval=20,
+        reset_dag_run=True,
+    )
+
+    run_minute_sync >> run_anomaly_detection >> run_anomaly_email_alerts >> run_anomaly_telegram_alerts

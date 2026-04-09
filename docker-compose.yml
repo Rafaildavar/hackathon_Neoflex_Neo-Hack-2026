@@ -33,6 +33,7 @@ services:
       AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
       AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "false"
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-moex}:${POSTGRES_PASSWORD:-moex_pass}@db:5432/${POSTGRES_DB:-moex_dwh}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       AIRFLOW_UID: ${AIRFLOW_UID:-50000}
       TZ: ${TZ:-UTC}
       _PIP_ADDITIONAL_REQUIREMENTS: ${AIRFLOW_PIP_ADDITIONAL_REQUIREMENTS:-apache-airflow-providers-postgres==5.13.0 requests==2.32.3 pandas==2.2.3}
