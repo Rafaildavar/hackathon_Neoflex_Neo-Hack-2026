@@ -3,8 +3,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import time
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin
@@ -46,6 +47,23 @@ class LoadStats:
     inserted_rows: int = 0
     requests_done: int = 0
     candles_fetched: int = 0
+
+
+class RateLimiter:
+    """Simple client-side rate limiter by max requests per second."""
+
+    def __init__(self, max_rps: float) -> None:
+        if max_rps <= 0:
+            raise ValueError("max_rps must be > 0")
+        self._min_interval = 1.0 / max_rps
+        self._last_ts = 0.0
+
+    def wait(self) -> None:
+        now = time.monotonic()
+        elapsed = now - self._last_ts
+        if elapsed < self._min_interval:
+            time.sleep(self._min_interval - elapsed)
+        self._last_ts = time.monotonic()
 
 
 def parse_args() -> argparse.Namespace:
@@ -131,6 +149,18 @@ def parse_args() -> argparse.Namespace:
         default=int(os.getenv("MOEX_MAX_PAGES", "500")),
         help="Safety limit for pagination pages per ticker",
     )
+    parser.add_argument(
+        "--max-rps",
+        type=float,
+        default=float(os.getenv("MOEX_MAX_RPS", "10")),
+        help="Client-side rate limit in requests/second (MOEX hard limit is 20)",
+    )
+    parser.add_argument(
+        "--daily-request-limit",
+        type=int,
+        default=int(os.getenv("MOEX_DAILY_REQUEST_LIMIT", "100000")),
+        help="Safety daily request cap (MOEX guideline ~100000/day)",
+    )
     return parser.parse_args()
 
 
@@ -201,8 +231,32 @@ def insert_raw_payload(
         return True
 
 
+def get_today_ingested_request_count(conn: psycopg2.extensions.connection) -> int:
+    """
+    Count already ingested raw requests in UTC day.
+    Used as approximation for API requests done today by this pipeline.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT COUNT(*)
+            FROM stg.raw_moex_data
+            WHERE ingested_at >= %s
+            """,
+            (datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0),),
+        )
+        return int(cur.fetchone()[0])
+
+
 def main() -> int:
     args = parse_args()
+    if args.max_rps > 20:
+        raise ValueError("MOEX ISS limit is 20 requests/second. Set --max-rps <= 20")
+
+    print(
+        "Notice: MOEX data in this pipeline is used for educational purposes only "
+        "(not for profit extraction)."
+    )
     tickers = [part.strip().upper() for part in args.tickers.split(",") if part.strip()]
 
     if not tickers:
@@ -217,6 +271,7 @@ def main() -> int:
     )
 
     stats = LoadStats()
+    limiter = RateLimiter(args.max_rps)
 
     conn = None
     if not args.dry_run:
@@ -227,6 +282,16 @@ def main() -> int:
             user=db_cfg.user,
             password=db_cfg.password,
         )
+        today_count = get_today_ingested_request_count(conn)
+        print(
+            f"Already ingested today (UTC): {today_count} requests. "
+            f"Configured daily cap: {args.daily_request_limit}."
+        )
+        if today_count >= args.daily_request_limit:
+            raise RuntimeError(
+                "Daily request limit already reached before run start. "
+                "Abort to avoid MOEX overuse."
+            )
 
     try:
         for ticker in tickers:
@@ -235,6 +300,8 @@ def main() -> int:
             total_rows_for_ticker = 0
 
             while page < args.max_pages:
+                # Respect MOEX per-second limit with client-side throttling.
+                limiter.wait()
                 source_endpoint, payload = fetch_with_fallback(
                     ticker=ticker,
                     from_date=args.from_date,
@@ -246,6 +313,12 @@ def main() -> int:
                     page_size=args.page_size,
                 )
                 stats.requests_done += 1
+                if stats.requests_done >= args.daily_request_limit:
+                    print(
+                        "WARN Daily request safety cap reached for this run. "
+                        "Stopping further polling."
+                    )
+                    break
                 page += 1
 
                 candles_data = payload.get("candles", {}).get("data", [])
@@ -288,6 +361,9 @@ def main() -> int:
                     f"  WARN Reached max pages ({args.max_pages}) for {ticker}; "
                     "consider increasing --max-pages if needed."
                 )
+
+            if stats.requests_done >= args.daily_request_limit:
+                break
 
             if not args.dry_run:
                 print(
